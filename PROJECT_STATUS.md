@@ -1,41 +1,33 @@
 # DIMRI Social Studio — Project Status
-Last updated: 2026-10-03
+Last updated: 2026-10-04
 
-## Completed and verified in source
-- [x] Dedicated public GitHub repository: avneeshdimri555/dimri-social-studio
-- [x] Selected Design #4 implemented: Dashboard + AI Workspace, dark professional command-center UI
-- [x] Dashboard includes KPI cards, Create New Content, Recent Projects, AI Assistant, Content Workflow, Calendar, Platform Performance and Top Content
-- [x] Responsive navigation includes AI Workspace, Create Content, Calendar, Social Accounts, Analytics, Projects, Media Library, Automation, Team & Approvals and Settings
-- [x] Server-side Gemini generation endpoint; secret read only from GEMINI_API_KEY
-- [x] Browser-local drafts/calendar, copy action and JSON export
-- [x] Explicit not-connected states for social accounts, publishing and analytics
+## Completed
+- [x] Dedicated GitHub repository: https://github.com/avneeshdimri555/dimri-social-studio
+- [x] Design #4 (Dashboard + AI Workspace) implemented in responsive dark command-center UI.
+- [x] Workspace navigation and content creation forms implemented.
+- [x] Gemini generation endpoint exists server-side and reads GEMINI_API_KEY from the environment only.
+- [x] Local browser draft/calendar save, copy and JSON export implemented.
+- [x] Removed fabricated analytics and sample performance numbers from the dashboard.
+- [x] Dashboard metrics now reflect local draft count, local planned-post count, local AI generation count, and zero connected accounts. These are local workspace counts, not social platform analytics.
+- [x] Social account connection and live analytics states are clearly marked as not connected/pending.
 
 ## Deployment
-- [x] Separate Render free Node web service created: dimri-social-studio
-- [x] Previous Render deployment reached live status and logs confirmed npm install + npm start
-- [ ] Verify the new Design #4 commit is deployed and visually checked on the public URL
-
-## Pending
-- [ ] Configure GEMINI_API_KEY securely in Render and redeploy
-- [ ] Verify public /health and real Gemini generation
-- [ ] Browser/device QA and responsive/accessibility review
-- [ ] Replace visual placeholder analytics/content imagery with real integrated data when platform APIs are connected
-
-## Known limitations
-- No database or authentication; localStorage only, not synced between devices.
-- Social OAuth, publishing, live analytics, billing, uploads and automation are not integrated.
-- AI generation returns a setup error until GEMINI_API_KEY is configured.
-- Gemini model defaults to gemini-2.5-flash; GEMINI_MODEL can override it.
-- Dashboard KPI/analytics values are clearly part of the visual concept and are not live platform measurements.
-
-## Live service
+- Render service: dimri-social-studio
 - URL: https://dimri-social-studio.onrender.com
-- Render service: srv-db0ha0psrm7s73fjn5tg
-- Region/plan: Singapore / free
-- Repository: https://github.com/avneeshdimri555/dimri-social-studio
+- Workspace: DIMRI STUDIO
+- Plan/region: Free / Singapore
+- Auto-deploy: enabled for main
+- A previous Design #4 deployment was confirmed live in Render.
+- The latest truthful-metrics UI commit is pushed to main; its Render deployment is queued/in progress and must be checked before claiming the latest commit is live.
+
+## Pending / limitations
+- GEMINI_API_KEY has not been configured or verified in Render; AI generation cannot be claimed working until tested.
+- Social OAuth, direct publishing, live analytics, billing, cloud database, authentication, external media storage and scheduled automation are not integrated.
+- Drafts and calendar entries are browser-local and do not sync across devices.
+- Visual/browser QA has not been independently completed.
 
 ## Exact next steps
-1. Confirm Render auto-deploy picked up commit 1b3bdbd6c3f3003b97fe65516d03bbd865a32ec0.
-2. Add GEMINI_API_KEY in Render Environment settings; never commit or expose the secret.
-3. Verify /health, /api/generate and responsive UI.
-4. Record verified results here before claiming the release live.
+1. Confirm Render deploy for the latest main commit is live.
+2. Avneesh configures GEMINI_API_KEY in Render Environment settings (keep secret out of chat and GitHub).
+3. Test health endpoint and Gemini generation after key setup.
+4. Avneesh reviews the UI on desktop and mobile; address review feedback in a separate revision.
