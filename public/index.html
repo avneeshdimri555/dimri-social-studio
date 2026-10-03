@@ -42,7 +42,7 @@
 </div></div><div class="thumb"><div class="thumbimg"></div><div class="thumblabel">Food Series</div></div><div class="thumb"><div class="thumbimg"></div><div class="thumblabel">Car Review</div></div><div class="thumb"><div class="thumbimg"></div><div class="thumblabel">Kids Stories</div></div><div class="thumb"><div class="thumbimg"></div><div class="thumblabel">Product Ad</div></div><div class="thumb"><div class="thumbimg"></div><div class="thumblabel">Nature Reel</div></div>
 </div></div>
 </div>
-<div class="panel aiassistant"><div class="head"><h2>AI Assistant</h2><span class="tag">AI setup required</span></div><div class="assistant-avatar">◉</div><div class="checklist">
+<div class="panel aiassistant"><div class="head"><h2>AI Assistant</h2><span class="tag" id="aiStatus">Checking AI…</span></div><div class="assistant-avatar">◉</div><div class="checklist">
 <div class="check"><i>✓</i> Ask me anything</div><div class="check"><i>✓</i> Write a YouTube script</div><div class="check"><i>✓</i> Generate Instagram captions</div><div class="check"><i>✓</i> Create viral video ideas</div><div class="check"><i>✓</i> Design a thumbnail</div>
 </div><div class="field" style="margin-top:auto"><input id="assistantInput" placeholder="Type your request..."></div><button class="btn primary" id="assistantSend">Ask AI →</button></div>
 </div>
@@ -82,5 +82,7 @@ function renderData(){let d=state.drafts,c=state.calendar;$('#metricChannels').t
 $('#assistantSend').onclick=()=>{let v=$('#assistantInput').value.trim();if(v){nav('workspace');$('#workspaceBrief').value=v;$('#workspaceGenerate').click()}};$('#workspaceSave').onclick=()=>{let text=$('#workspaceOutput').value.trim();if(!text)return;state.drafts.unshift({id:String(Date.now()),title:text.slice(0,60),brief:$('#workspaceBrief').value,platform:$('#workspacePlatform').value,type:$('#workspaceType').value,text,created:new Date().toISOString()});persist();$('#workspaceMsg').hidden=false;$('#workspaceMsg').textContent='Draft saved locally.';$('#workspaceMsg').className='notice success'};
 $('#export').onclick=()=>{let u=URL.createObjectURL(new Blob([JSON.stringify(state,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=u;a.download='dimri-social-studio-backup.json';a.click();URL.revokeObjectURL(u)};$('#erase').onclick=()=>{if(confirm('Delete local drafts and calendar?')){state={drafts:[],calendar:[],generations:0};persist()}};
 renderData();
+async function checkAI(){const el=$('#aiStatus');if(!el)return;try{const r=await fetch('/health',{cache:'no-store'}),d=await r.json();if(d.aiConfigured){el.textContent='AI ready';el.style.color='#a9eee0';el.style.borderColor='#2a5654';el.style.background='#16302f'}else{el.textContent='AI setup required'}}catch{el.textContent='AI status unavailable'}}
+checkAI();
 </script>
 </body></html>
