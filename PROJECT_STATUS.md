@@ -5,10 +5,12 @@ Last updated: 2026-10-04
 - [x] Dedicated GitHub repository: https://github.com/avneeshdimri555/dimri-social-studio
 - [x] Design #4 (Dashboard + AI Workspace) implemented in responsive dark command-center UI.
 - [x] Workspace navigation and content creation forms implemented.
+- [x] Navigation display fix committed and deployed to Render (commit: 2b8a60864056bc37211740c5da6bc9c3f5644d4d; deploy: dep-db0lnpgjo6nc739puo70; status verified live).
 - [x] Gemini generation endpoint exists server-side and reads GEMINI_API_KEY from the environment only.
+- [x] Live AI configuration badge calls /health; user previously reported seeing “AI ready”.
 - [x] Local browser draft/calendar save, copy and JSON export implemented.
 - [x] Removed fabricated analytics and sample performance numbers from the dashboard.
-- [x] Dashboard metrics now reflect local draft count, local planned-post count, local AI generation count, and zero connected accounts. These are local workspace counts, not social platform analytics.
+- [x] Dashboard metrics reflect local draft count, local planned-post count, local AI generation count, and zero connected accounts. These are local workspace counts, not social platform analytics.
 - [x] Social account connection and live analytics states are clearly marked as not connected/pending.
 
 ## Deployment
@@ -17,17 +19,16 @@ Last updated: 2026-10-04
 - Workspace: DIMRI STUDIO
 - Plan/region: Free / Singapore
 - Auto-deploy: enabled for main
-- A previous Design #4 deployment was confirmed live in Render.
-- The latest truthful-metrics UI commit is pushed to main; its Render deployment is queued/in progress and must be checked before claiming the latest commit is live.
+- Latest navigation-fix commit 2b8a60864056bc37211740c5da6bc9c3f5644d4d is verified live on Render.
+- Browser-side confirmation that the workspace form is now visible is still pending.
 
 ## Pending / limitations
-- GEMINI_API_KEY has not been configured or verified in Render; AI generation cannot be claimed working until tested.
+- User’s browser displayed “AI ready”, suggesting /health reported AI configured, but actual Gemini generation has not been independently tested; do not claim generation works until /api/generate succeeds.
 - Social OAuth, direct publishing, live analytics, billing, cloud database, authentication, external media storage and scheduled automation are not integrated.
 - Drafts and calendar entries are browser-local and do not sync across devices.
-- Visual/browser QA has not been independently completed.
+- Full visual/browser QA has not been independently completed.
 
 ## Exact next steps
-1. Confirm Render deploy for the latest main commit is live.
-2. Avneesh configures GEMINI_API_KEY in Render Environment settings (keep secret out of chat and GitHub).
-3. Test health endpoint and Gemini generation after key setup.
-4. Avneesh reviews the UI on desktop and mobile; address review feedback in a separate revision.
+1. User hard-refreshes the live site and checks AI Workspace and Create Content forms.
+2. Test /health and actual Gemini generation; resolve any API or configuration errors.
+3. User reviews the UI on desktop and mobile; address feedback in a separate revision.
