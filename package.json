@@ -1,0 +1,1 @@
+{"name":"dimri-social-studio","version":"0.1.0","private":true,"description":"AI-assisted social media workspace by DIMRI STUDIO","scripts":{"start":"node server.js"},"engines":{"node":">=18"}}
