@@ -27,9 +27,10 @@ Last updated: 2026-10-04
 - Workspace: DIMRI STUDIO
 - Plan/region: Free / Singapore
 - Auto-deploy: enabled for main
-- Last previously verified live commit: 3a9f8d9e34c934935300a892ca5379ba17756c3f
-- Latest code change: 909c68866342bd441ef3315b69cc5d047715b492 (deployment verification pending)
-- Latest deploy status: pending verification.
+- Last verified live commit: f1a62b5b3fd63a8255bffb27c0f7b9d09df20dbf
+- Latest deploy: dep-db0vdartqb8s738qchpg
+- Latest deploy status: live (Render verified)
+- Latest fix: corrected the integrations-status handler syntax that had caused the previous deployment to fail.
 
 ## Pending / limitations
 - Actual Gemini generation still depends on a valid provider API key and available quota.
@@ -40,7 +41,7 @@ Last updated: 2026-10-04
 - Full visual/browser QA has not been independently completed.
 
 ## Exact next steps
-1. Verify Render deployment for the Daily Content Engine changes.
+1. Connect and verify YouTube/Instagram/video-provider credentials in Render; the current service deployment is live.
 2. Add the user's YouTube OAuth credentials and Instagram/Meta publishing credentials to Render secrets.
 3. Add the video-provider credential (Higgsfield) and choose the production model/budget.
 4. Add durable storage and worker scheduling for generated assets, tokens, jobs, retries and publish history.
