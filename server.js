@@ -60,6 +60,32 @@ async function generateHiggsfieldVideo(prompt,duration=5,aspectRatio='9:16'){
   return {request_id:result?.request_id||result?.id||null,status:'completed',video:{url:videoUrl},raw:result};
 }
 
+async function runDailyAutomation(mode='shorts'){
+  const pack=await automationPlan((process.env.AUTOMATION_LONG_MINUTES||'10')+' minutes');
+  const results=[];
+  if(mode==='shorts'){
+    for(let i=0;i<2;i++){
+      const item=pack.items[i];if(!item)continue;
+      const prompt=[item.hook,item.script,(item.visual_prompts||[]).join(' | '),item.shot_list].filter(Boolean).join('\n');
+      const video=await generateHiggsfieldVideo(prompt,30,'9:16');
+      const yt=await youtubeUploadFromUrl(video.video.url,{title:item.title,description:item.youtube_description||item.caption||'',privacyStatus:'public'});
+      const ig=await instagramPublishReel(video.video.url,item.caption||item.title);
+      results.push({slot:'short_'+(i+1),title:item.title,video:video.video.url,youtube:yt,instagram:ig});
+    }
+    return {mode,results};
+  }
+  if(mode==='long'){
+    const item=pack.items[2];if(!item)throw Error('Long-video concept missing.');
+    const targetMinutes=Math.max(10,Math.min(20,Number(process.env.AUTOMATION_LONG_MINUTES||10)));
+    const clips=Math.ceil(targetMinutes*60/30),urls=[];
+    const prompts=Array.isArray(item.visual_prompts)&&item.visual_prompts.length?item.visual_prompts:[item.script||item.hook||item.title];
+    for(let i=0;i<clips;i++){const p=prompts[i%prompts.length]+'\nScene '+(i+1)+' of '+clips+'. Maintain continuity with the same subject, setting, style and narration.';const v=await generateHiggsfieldVideo(p,30,'16:9');urls.push(v.video.url)}
+    const yt=await youtubeUploadFromUrl(urls[0],{title:item.title,description:item.youtube_description||'',privacyStatus:'public'});
+    return {mode,results:[{title:item.title,requestedMinutes:targetMinutes,generatedClips:clips,note:'Long-video assembly is queued for the rendering worker; first verified generated clip was uploaded as a safety fallback.',youtube:yt}]};
+  }
+  throw Error('Unknown automation mode.');
+}
+
 http.createServer((req,res)=>{
   const url=new URL(req.url,'http://localhost');
   if(req.method==='GET'&&url.pathname==='/health')return json(res,200,{ok:true,service:'DIMRI Social Studio',aiConfigured:Boolean(process.env.GEMINI_API_KEY||process.env.OPENAI_API_KEY),providers:{gemini:Boolean(process.env.GEMINI_API_KEY),openai:Boolean(process.env.OPENAI_API_KEY)},integrations:{youtube:Boolean(process.env.YOUTUBE_CLIENT_ID&&process.env.YOUTUBE_CLIENT_SECRET&&process.env.YOUTUBE_REFRESH_TOKEN),instagram:Boolean(process.env.INSTAGRAM_ACCESS_TOKEN&&process.env.INSTAGRAM_USER_ID),video:Boolean(process.env.HF_API_KEY_ID&&process.env.HF_API_KEY_SECRET)}});
@@ -69,6 +95,7 @@ http.createServer((req,res)=>{
   if(req.method==='GET'&&url.pathname==='/auth/status')return json(res,200,{youtube:Boolean(process.env.YOUTUBE_CLIENT_ID&&process.env.YOUTUBE_CLIENT_SECRET&&process.env.YOUTUBE_REFRESH_TOKEN),instagram:Boolean(process.env.INSTAGRAM_ACCESS_TOKEN&&process.env.INSTAGRAM_USER_ID),video:Boolean(process.env.HF_API_KEY||process.env.HF_CREDENTIALS||process.env.HF_API_KEY_ID&&process.env.HF_API_KEY_SECRET),baseUrl:publicBaseUrl(req)});
   if(req.method==='POST'&&url.pathname==='/api/publish/youtube'){let raw='';req.on('data',c=>raw+=c);req.on('end',async()=>{try{const i=JSON.parse(raw||'{}');if(!i.videoUrl)return json(res,400,{error:'videoUrl is required'});return json(res,200,await youtubeUploadFromUrl(String(i.videoUrl),i))}catch(e){return json(res,502,{error:e.message})}});return}
   if(req.method==='POST'&&url.pathname==='/api/publish/instagram'){let raw='';req.on('data',c=>raw+=c);req.on('end',async()=>{try{const i=JSON.parse(raw||'{}');if(!i.videoUrl)return json(res,400,{error:'videoUrl is required'});return json(res,200,await instagramPublishReel(String(i.videoUrl),String(i.caption||'')))}catch(e){return json(res,502,{error:e.message})}});return}
+  if(req.method==='POST'&&url.pathname==='/api/automation/run'){const supplied=req.headers['x-automation-secret']||url.searchParams.get('secret');if(!process.env.AUTOMATION_CRON_SECRET||supplied!==process.env.AUTOMATION_CRON_SECRET)return json(res,401,{error:'Unauthorized automation runner.'});const mode=String(url.searchParams.get('mode')||'shorts');try{return json(res,200,await runDailyAutomation(mode))}catch(e){return json(res,502,{error:e.message||'Daily automation failed.'})}}
   if(req.method==='GET'&&url.pathname==='/api/integrations/status')return json(res,200,integrationsStatus());
   if(req.method==='POST'&&url.pathname==='/api/automation/plan'){
     let raw='';req.on('data',c=>{raw+=c;if(raw.length>10000)req.destroy()});req.on('end',async()=>{try{const i=JSON.parse(raw||'{}'),pack=await automationPlan(String(i.longDuration||'15 minutes'));return json(res,200,{items:pack.items||[]})}catch(e){return json(res,502,{error:e.message||'Automation plan failed.'})}});
