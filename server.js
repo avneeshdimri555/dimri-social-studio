@@ -1,4 +1,40 @@
 const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),os=require('node:os'),{promisify}=require('node:util'),{execFile}=require('node:child_process'),execFileAsync=promisify(execFile);
+const companyStructure={
+  name:'DIMRI Social Studio',
+  departments:[
+    {id:'ceo',name:'AI CEO & Chief of Staff',mission:'Priorities, delegation, cross-team coordination, daily briefing and owner decision queue.',roles:['AI CEO','Chief of Staff','Operations Coordinator']},
+    {id:'research',name:'Research & Intelligence',mission:'Audience, niche, demand, competitors, platform changes and source validation.',roles:['Trend Scout','Competitor Analyst','Audience Researcher','Source Verifier']},
+    {id:'strategy',name:'Social Strategy & Growth',mission:'Channel positioning, content pillars, audience strategy and measurable growth experiments.',roles:['Channel Strategist','Content Planner','Growth Experimenter']},
+    {id:'creative',name:'Creative Direction & Story',mission:'Ideas, hooks, scripts, long stories, series bibles, character DNA and continuity.',roles:['Creative Director','Scriptwriter','Series Architect','Brand Voice Editor']},
+    {id:'production',name:'Production & Media',mission:'Scene prompts, image creation, image-to-video generation, voiceover and asset production.',roles:['Image Prompt Engineer','Image Operator','Video Prompt Engineer','Clip Producer']},
+    {id:'editing',name:'Editing & Post-production',mission:'Assembly, pacing, subtitles, transitions, audio, thumbnails and exports.',roles:['Video Editor','Caption Specialist','Audio Editor','Thumbnail Designer']},
+    {id:'seo',name:'Social SEO & Distribution',mission:'Platform-specific titles, descriptions, hashtags, metadata and discovery.',roles:['YouTube SEO','Reels Specialist','Distribution Planner']},
+    {id:'marketing',name:'Marketing & Campaigns',mission:'Campaign planning, creative testing, brand messaging and marketing calendar.',roles:['Campaign Strategist','Creative Tester','Brand Marketer']},
+    {id:'sales',name:'Sales, UGC & Partnerships',mission:'Social service offers, UGC briefs, lead research, proposals and partnership pipeline.',roles:['UGC Producer','Lead Researcher','Partnership Manager']},
+    {id:'community',name:'Community & Audience Insights',mission:'Comment themes, FAQs, feedback, sentiment summaries and response drafts.',roles:['Community Analyst','Feedback Classifier','Reply Drafting Agent']},
+    {id:'publishing',name:'Publishing & Platform Operations',mission:'Account health, upload, scheduling, publish reconciliation and recovery.',roles:['Scheduler','Platform Publisher','Publish Reconciler','Recovery Agent']},
+    {id:'qa',name:'Quality Assurance & Fact-check',mission:'Story, visual, audio, technical, factual, rights and policy review.',roles:['Story QA','Visual QA','Technical QA','Fact-checker','Policy Reviewer']},
+    {id:'analytics',name:'Analytics & Revenue Intelligence',mission:'Verified channel performance, experiments, costs, revenue and reporting.',roles:['Performance Analyst','Revenue Analyst','Experiment Reporter']},
+    {id:'automation',name:'Automation & Integrations',mission:'APIs, webhooks, provider routing, job orchestration and monitoring.',roles:['API Integrator','Workflow Engineer','Provider Router','Monitoring Agent']},
+    {id:'security',name:'Security, Rights & Compliance',mission:'Least privilege, secret handling, privacy, copyright, licensing and platform rules.',roles:['Security Steward','Rights Reviewer','Compliance Analyst']},
+    {id:'finance',name:'Finance & Resource Control',mission:'Budget caps, provider usage, cost-per-asset and financial reporting.',roles:['Budget Controller','Usage Analyst','Cost Optimizer']},
+    {id:'operations',name:'Operations & Recovery',mission:'SOPs, task queues, backup planning, incident response and restore drills.',roles:['Operations Manager','Backup Steward','Incident Coordinator']}
+  ],
+  pods:[
+    {name:'Trend Discovery',members:'Trend Scout · Search Intent Analyst · Competitor Analyst · Source Verifier'},
+    {name:'Channel Strategy',members:'Channel Planner · Audience Analyst · Growth Experimenter'},
+    {name:'Story & Creative',members:'Idea Generator · Scriptwriter · Series Architect · Brand Voice Editor'},
+    {name:'Image & Character',members:'Visual Prompt Engineer · Image Operator · Consistency Reviewer'},
+    {name:'Video Production',members:'Video Prompt Engineer · Provider Router · Clip Producer · Assembly Editor'},
+    {name:'Voice & Audio',members:'Voice Director · TTS Operator · Audio QA'},
+    {name:'Platform Packaging',members:'YouTube Metadata · Reels Specialist · Shorts Editor · Thumbnail Reviewer'},
+    {name:'Publishing',members:'Scheduler · Publisher · Reconciler · Failure Recovery'},
+    {name:'QA & Safety',members:'Story QA · Visual QA · Technical QA · Fact-checker · Policy Reviewer'},
+    {name:'Marketing & UGC',members:'Campaign Planner · UGC Brief Writer · Lead Qualifier · Partnerships Researcher'},
+    {name:'Analytics',members:'Performance Analyst · Comment Theme Analyst · Experiment Reporter'},
+    {name:'Infrastructure',members:'API Integrator · Scheduler Operator · Secrets Steward · Recovery Agent'}
+  ]
+};
 const PORT=process.env.PORT||3000,ROOT=path.join(__dirname,'public'),MIME={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.json':'application/json; charset=utf-8'};
 function json(res,status,data){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data))}
 function safeMessage(d,fallback){return String(d?.error?.message||fallback).slice(0,240)}
@@ -157,6 +193,7 @@ async function runDailyAutomation(mode='shorts'){
 
 http.createServer(async (req,res)=>{
   const url=new URL(req.url,'http://localhost');
+  if(req.method==='GET'&&url.pathname==='/api/company/structure')return json(res,200,companyStructure);
   if(req.method==='GET'&&url.pathname==='/health')return json(res,200,{ok:true,service:'DIMRI Social Studio',aiConfigured:Boolean(process.env.GEMINI_API_KEY||process.env.OPENAI_API_KEY),providers:{gemini:Boolean(process.env.GEMINI_API_KEY),openai:Boolean(process.env.OPENAI_API_KEY)},integrations:{youtube:Boolean(process.env.YOUTUBE_CLIENT_ID&&process.env.YOUTUBE_CLIENT_SECRET&&process.env.YOUTUBE_REFRESH_TOKEN),instagram:Boolean(process.env.INSTAGRAM_ACCESS_TOKEN&&process.env.INSTAGRAM_USER_ID),video:configuredVideoEngines().length>0,videoEngines:configuredVideoEngines()}});
   
   if(req.method==='GET'&&url.pathname==='/auth/youtube'){if(!process.env.YOUTUBE_CLIENT_ID)return html(res,503,'<p>YOUTUBE_CLIENT_ID is not configured in Render.</p>');const redirect=publicBaseUrl(req)+'/auth/youtube/callback';const q=new URLSearchParams({client_id:process.env.YOUTUBE_CLIENT_ID,redirect_uri:redirect,response_type:'code',access_type:'offline',prompt:'consent',scope:'https://www.googleapis.com/auth/youtube.upload'});res.writeHead(302,{Location:'https://accounts.google.com/o/oauth2/v2/auth?'+q.toString()});return res.end()}
