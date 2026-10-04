@@ -60,6 +60,16 @@ async function generateHiggsfieldVideo(prompt,duration=5,aspectRatio='9:16'){
   return {request_id:result?.request_id||result?.id||null,status:'completed',video:{url:videoUrl},raw:result};
 }
 
+async function uploadToHiggsfieldStorage(filePath){
+  const credentials=process.env.HF_CREDENTIALS||(process.env.HF_API_KEY_ID&&process.env.HF_API_KEY_SECRET?process.env.HF_API_KEY_ID+':'+process.env.HF_API_KEY_SECRET:process.env.HF_API_KEY);
+  if(!credentials)throw Error('Higgsfield storage credentials are not configured.');
+  const r=await fetch('https://api.higgsfield.ai/files/generate-upload-url',{method:'POST',headers:{Authorization:'Key '+credentials,'Content-Type':'application/json'},body:JSON.stringify({content_type:'video/mp4'})});
+  const d=await r.json();if(!r.ok||!d.upload_url||!d.public_url)throw Error('Higgsfield storage upload URL creation failed.');
+  const bytes=await fs.promises.readFile(filePath);
+  const headers=Object.assign({},d.upload_headers||{}, {'Content-Type':'video/mp4'});
+  const put=await fetch(d.upload_url,{method:'PUT',headers,body:bytes});if(!put.ok)throw Error('Higgsfield storage upload failed.');
+  return d.public_url;
+}
 async function assembleVideoFromUrls(urls){
   const dir=await fs.promises.mkdtemp(path.join(os.tmpdir(),'dimri-social-'));const list=path.join(dir,'list.txt'),out=path.join(dir,'final.mp4');
   try{
@@ -92,15 +102,10 @@ async function runDailyAutomation(mode='shorts'){
     const prompts=Array.isArray(item.visual_prompts)&&item.visual_prompts.length?item.visual_prompts:[item.script||item.hook||item.title];
     for(let i=0;i<clips;i++){const p=prompts[i%prompts.length]+'\nScene '+(i+1)+' of '+clips+'. Maintain continuity with the same subject, setting, style and narration.';const v=await generateHiggsfieldVideo(p,30,'16:9');urls.push(v.video.url)}
     const assembled=await assembleVideoFromUrls(urls);
-    const bytes=await fs.promises.readFile(assembled.path);
-    const tempUrl=process.env.INTERNAL_UPLOAD_URL;
-    if(!tempUrl)throw Error('Long-video assembly completed, but no public upload/storage adapter is configured yet. Set INTERNAL_UPLOAD_URL or use the storage worker.');
-    const upload=await fetch(tempUrl,{method:'POST',headers:{'Content-Type':'video/mp4','X-Filename':item.title.replace(/[^a-z0-9_-]+/gi,'-').slice(0,80)+'.mp4'},body:bytes});
-    if(!upload.ok)throw Error('Long-video assembled but storage upload failed.');
-    const stored=await upload.json();if(!stored.url)throw Error('Storage adapter did not return a public video URL.');
-    const yt=await youtubeUploadFromUrl(stored.url,{title:item.title,description:item.youtube_description||'',privacyStatus:'public'});
+    const storedUrl=await uploadToHiggsfieldStorage(assembled.path);
+    const yt=await youtubeUploadFromUrl(storedUrl,{title:item.title,description:item.youtube_description||'',privacyStatus:'public'});
     await fs.promises.rm(assembled.dir,{recursive:true,force:true});
-    return {mode,results:[{title:item.title,requestedMinutes:targetMinutes,generatedClips:clips,storageUrl:stored.url,youtube:yt}]};
+    return {mode,results:[{title:item.title,requestedMinutes:targetMinutes,generatedClips:clips,storageUrl:storedUrl,youtube:yt}]};
   }
   throw Error('Unknown automation mode.');
 }
