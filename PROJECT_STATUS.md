@@ -5,6 +5,9 @@ Last updated: 2026-10-04
 - [x] Dedicated GitHub repository: https://github.com/avneeshdimri555/dimri-social-studio
 - [x] Design #4 (Dashboard + AI Workspace) implemented in responsive dark command-center UI.
 - [x] Workspace navigation and content creation forms implemented.
+- [x] Added selectable video format (9:16, 16:9, 1:1) and duration (1 second through 30 minutes) to AI Workspace and Create Content.
+- [x] Added Video Script, Shot-by-Shot Storyboard, and Complete Production Plan output modes.
+- [x] Generation API accepts duration and format, requests timestamped shot timing, and supports longer output token limits.
 - [x] Navigation display and malformed dashboard markup fixes deployed to Render.
 - [x] Gemini generation endpoint reads GEMINI_API_KEY from the environment only.
 - [x] AI generation hardened with Gemini model fallback and optional OpenAI provider fallback.
@@ -21,10 +24,9 @@ Last updated: 2026-10-04
 - Workspace: DIMRI STUDIO
 - Plan/region: Free / Singapore
 - Auto-deploy: enabled for main
-- Latest live commit: 3a9f8d9e34c934935300a892ca5379ba17756c3f
-- Latest live deploy: dep-db0tdkqvcj2c739lksf0
-- Latest deploy status: live
-- Build completed successfully and the service started on port 10000.
+- Last previously verified live commit: 3a9f8d9e34c934935300a892ca5379ba17756c3f
+- Latest code change: 909c68866342bd441ef3315b69cc5d047715b492 (deployment verification pending)
+- Latest deploy status: pending verification.
 
 ## Pending / limitations
 - Actual Gemini generation still depends on a valid provider API key and available quota.
@@ -34,7 +36,8 @@ Last updated: 2026-10-04
 - Full visual/browser QA has not been independently completed.
 
 ## Exact next steps
-1. Hard-refresh the live site and verify AI Workspace/Create Content UI.
-2. Test one real AI generation from the browser.
-3. If Gemini quota is exhausted, configure OPENAI_API_KEY in Render to activate the fallback.
-4. Continue UI/mobile QA separately from deployment infrastructure.
+1. Verify Render deployment for the duration-aware UI and generation API changes.
+2. Hard-refresh the live site and verify AI Workspace/Create Content controls.
+3. Test short-form and 10–15 minute script/storyboard generation from the browser.
+4. If Gemini quota is exhausted, configure OPENAI_API_KEY in Render to activate the fallback.
+5. Continue UI/mobile QA separately from deployment infrastructure.
