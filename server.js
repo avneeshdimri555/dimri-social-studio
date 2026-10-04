@@ -110,7 +110,7 @@ async function runDailyAutomation(mode='shorts'){
   throw Error('Unknown automation mode.');
 }
 
-http.createServer((req,res)=>{
+http.createServer(async (req,res)=>{
   const url=new URL(req.url,'http://localhost');
   if(req.method==='GET'&&url.pathname==='/health')return json(res,200,{ok:true,service:'DIMRI Social Studio',aiConfigured:Boolean(process.env.GEMINI_API_KEY||process.env.OPENAI_API_KEY),providers:{gemini:Boolean(process.env.GEMINI_API_KEY),openai:Boolean(process.env.OPENAI_API_KEY)},integrations:{youtube:Boolean(process.env.YOUTUBE_CLIENT_ID&&process.env.YOUTUBE_CLIENT_SECRET&&process.env.YOUTUBE_REFRESH_TOKEN),instagram:Boolean(process.env.INSTAGRAM_ACCESS_TOKEN&&process.env.INSTAGRAM_USER_ID),video:Boolean(process.env.HF_API_KEY_ID&&process.env.HF_API_KEY_SECRET)}});
   
