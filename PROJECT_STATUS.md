@@ -23,6 +23,9 @@ Last updated: 2026-10-04
 - [x] Added Instagram Reel publishing endpoint using Meta Graph API credentials.
 - [x] Added secured daily automation runner endpoint and scheduled-runner script.
 - [x] Added FFmpeg-based long-video assembly and Higgsfield public-storage upload path.
+- [x] Added multi-provider video fallback layer with 8 engines: 7 fal.ai video engines plus Higgsfield; provider order is configurable and only configured credentials are attempted.
+- [x] Added fal.ai and Google GenAI SDK dependencies for the multi-provider architecture.
+- [x] Daily short/long generation now uses the configured provider fallback layer instead of being hard-wired to Higgsfield.
 
 ## Deployment
 - Render service: dimri-social-studio
@@ -38,14 +41,22 @@ Last updated: 2026-10-04
 
 ## Pending / limitations
 - Actual Gemini generation still depends on a valid provider API key and available quota.
+- Google Flow's free browser credits are not an API credential; Flow itself is not treated as an unattended server-side provider. Veo API is a separate paid API path.
+- fal.ai has some free daily sandbox offers for specific models, but API usage/limits must be verified per account; do not assume unlimited free API generation.
 - OpenAI fallback activates only when OPENAI_API_KEY is configured in Render.
 - YouTube/Instagram publishing is code-complete but blocked until the user completes OAuth/Meta credentials.
 - The daily runner script is ready; Render cron creation could not be completed through the available deployment action, so unattended scheduling still needs a scheduler resource.
+- Provider fallback is code-ready, but no new provider credential has been added or live-tested yet.
 - Long-video assembly is implemented, but a 10–20 minute video requires many paid generation clips; do not enable unattended long generation without confirming provider budget.
 - Durable job history/retries are still not persistent across service restarts.
 - Full long-video rendering requires a video stitching/rendering worker and will incur video-generation provider usage costs.
 - Drafts and calendar entries are browser-local and do not sync across devices.
 - Full visual/browser QA has not been independently completed.
+
+## Video provider setup
+1. Add FAL_KEY to Render if using fal.ai; the default order starts with FLUX 3 Draft, then H3 Max, Wan 3, Grok Imagine, Pika, Kling O3, Hunyuan, then Higgsfield.
+2. Optionally set VIDEO_PROVIDER_ORDER to a custom comma-separated order.
+3. Run one `/api/video/generate` end-to-end test before unattended automation.
 
 ## Exact next steps
 1. Complete YouTube OAuth from the Automation page and set the returned YOUTUBE_REFRESH_TOKEN in Render.
