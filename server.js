@@ -92,51 +92,6 @@ async function generateVideoWithFallback(prompt,duration=5,aspectRatio="9:16"){
   throw Error("All configured video providers failed. "+errors.join(" | "));
 }
 
-const VIDEO_ENGINE_SPECS={
-  "fal-flux3-draft":{provider:"fal",model:"blackforestlabs/flux-3/draft/text-to-video",max:15},
-  "fal-h3max":{provider:"fal",model:"minimax/h3-max/text-to-video",max:15},
-  "fal-wan3":{provider:"fal",model:"alibaba/wan-3.0/text-to-video",max:10},
-  "fal-grok":{provider:"fal",model:"xai/grok-imagine-video/v1.5/text-to-video",max:15},
-  "fal-pika":{provider:"fal",model:"fal-ai/pika/v2.2/text-to-video",max:10},
-  "fal-kling":{provider:"fal",model:"fal-ai/kling-video/o3/standard/text-to-video",max:15},
-  "fal-hunyuan":{provider:"fal",model:"fal-ai/hunyuan-video-v1.5/text-to-video",max:10},
-  "higgsfield":{provider:"higgsfield",model:process.env.HF_VIDEO_MODEL||"bytedance/seedance-2.5/text-to-video",max:30}
-};
-function configuredVideoEngines(){
-  const order=(process.env.VIDEO_PROVIDER_ORDER||"fal-flux3-draft,fal-h3max,fal-wan3,fal-grok,fal-pika,fal-kling,fal-hunyuan,higgsfield").split(",").map(x=>x.trim()).filter(Boolean);
-  return order.filter(id=>VIDEO_ENGINE_SPECS[id] && ((VIDEO_ENGINE_SPECS[id].provider==="fal"&&process.env.FAL_KEY)||(VIDEO_ENGINE_SPECS[id].provider==="higgsfield"&&(process.env.HF_CREDENTIALS||process.env.HF_API_KEY||process.env.HF_API_KEY_ID&&process.env.HF_API_KEY_SECRET))));
-}
-async function generateFalVideo(engineId,prompt,duration=5,aspectRatio="9:16"){
-  if(!process.env.FAL_KEY)throw Error("FAL_KEY is not configured.");
-  const spec=VIDEO_ENGINE_SPECS[engineId]; if(!spec||spec.provider!=="fal")throw Error("Unknown fal video engine.");
-  const {fal}=await import("@fal-ai/client");
-  fal.config({credentials:process.env.FAL_KEY});
-  const d=Math.max(5,Math.min(spec.max,Number(duration)||5));
-  const input={prompt:String(prompt),duration:d,aspect_ratio:aspectRatio};
-  if(engineId==="fal-wan3")Object.assign(input,{resolution:"720p",audio:true});
-  if(engineId==="fal-kling")Object.assign(input,{generate_audio:true});
-  if(engineId==="fal-flux3-draft")Object.assign(input,{resolution:"720p",generate_audio:true});
-  if(engineId==="fal-h3max")Object.assign(input,{resolution:"768P",prompt_expansion_mode:"disabled"});
-  const result=await fal.subscribe(spec.model,{input,logs:false});
-  const video=result?.data?.video||result?.data?.output?.video||result?.video||result?.output?.video;
-  const url=typeof video==="string"?video:video?.url;
-  if(!url)throw Error(engineId+" completed without a video URL.");
-  return {request_id:result?.requestId||null,status:"completed",engine:engineId,video:{url},duration:d};
-}
-async function generateVideoWithFallback(prompt,duration=5,aspectRatio="9:16"){
-  const engines=configuredVideoEngines();
-  if(!engines.length)throw Error("No video provider is configured. Add FAL_KEY or Higgsfield credentials in Render.");
-  const errors=[];
-  for(const id of engines){
-    try{
-      const spec=VIDEO_ENGINE_SPECS[id];
-      if(spec.provider==="fal")return await generateFalVideo(id,prompt,duration,aspectRatio);
-      return Object.assign(await generateHiggsfieldVideo(prompt,Math.min(spec.max,Number(duration)||5),aspectRatio),{engine:id});
-    }catch(e){errors.push(id+": "+String(e.message||e).slice(0,160));}
-  }
-  throw Error("All configured video providers failed. "+errors.join(" | "));
-}
-
 async function generateHiggsfieldVideo(prompt,duration=5,aspectRatio='9:16'){
   const credentials=process.env.HF_CREDENTIALS||(process.env.HF_API_KEY_ID&&process.env.HF_API_KEY_SECRET?process.env.HF_API_KEY_ID+':'+process.env.HF_API_KEY_SECRET:process.env.HF_API_KEY);
   if(!credentials)throw Error('Higgsfield video generation is not configured.');
@@ -214,6 +169,21 @@ http.createServer(async (req,res)=>{
   if(req.method==='POST'&&url.pathname==='/api/automation/plan'){
     let raw='';req.on('data',c=>{raw+=c;if(raw.length>10000)req.destroy()});req.on('end',async()=>{try{const i=JSON.parse(raw||'{}'),pack=await automationPlan(String(i.longDuration||'15 minutes'));return json(res,200,{items:pack.items||[]})}catch(e){return json(res,502,{error:e.message||'Automation plan failed.'})}});
     return;
+  }
+  if(req.method==='POST'&&url.pathname==='/api/story/plan'){
+    let raw='';req.on('data',c=>{raw+=c;if(raw.length>12000)req.destroy()});req.on('end',async()=>{
+      try{
+        const i=JSON.parse(raw||'{}'),topic=String(i.topic||'').trim(),duration=String(i.duration||'60 seconds'),style=String(i.style||'cinematic 3D animation');
+        if(!topic)return json(res,400,{error:'Enter a topic first.'});
+        if(topic.length>1000)return json(res,400,{error:'Keep topic under 1,000 characters.'});
+        const prompt='Create a production-ready story plan for topic: '+topic+'. Target duration: '+duration+'. Visual style: '+style+'. Return ONLY valid JSON object with keys title, logline, characters (array of objects with name, visual_dna), story (full narration/story), scenes (array of 4-12 objects, each with scene_number, duration_seconds, narration, image_prompt, video_prompt, sound_design). Image prompts must maintain character visual consistency by repeating visual DNA, specify composition, lighting, camera, aspect ratio 9:16. Video prompts must describe motion, camera movement, action, and continuity, suitable for image-to-video animation. Ensure scene durations sum approximately to requested duration. No markdown fences.';
+        let r=await gemini(prompt);if(!r.ok)r=await openai(prompt);
+        if(!r.ok)return json(res,r.status===429?429:502,{error:'Story planning failed. '+r.error+' Configure a valid GEMINI_API_KEY or OPENAI_API_KEY in Render.'});
+        const clean=r.text.replace(/^\`\`\`json\s*/,'').replace(/\s*\`\`\`$/,'');
+        let plan;try{plan=JSON.parse(clean)}catch{return json(res,502,{error:'AI returned invalid story JSON. Please retry.'})}
+        return json(res,200,{...plan,provider:r.provider,model:r.model});
+      }catch(e){return json(res,502,{error:e.message||'Story planning failed.'})}
+    });return;
   }
   if(req.method==='POST'&&url.pathname==='/api/video/generate'){
     let raw='';req.on('data',c=>{raw+=c;if(raw.length>20000)req.destroy()});req.on('end',async()=>{try{const i=JSON.parse(raw||'{}');if(!String(i.prompt||'').trim())return json(res,400,{error:'Video prompt is required.'});const d=await generateVideoWithFallback(String(i.prompt),Number(i.duration||5),String(i.aspectRatio||'9:16'));return json(res,202,d)}catch(e){return json(res,502,{error:e.message||'Video generation failed.'})}});return;
