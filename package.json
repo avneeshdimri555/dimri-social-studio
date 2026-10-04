@@ -10,6 +10,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@higgsfield/client": "latest"
+    "@higgsfield/client": "latest",
+    "ffmpeg-static": "latest"
   }
 }
