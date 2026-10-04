@@ -40,7 +40,7 @@ async function automationPlan(longDuration='15 minutes'){
   if(!r.ok)throw Error(r.error||'AI generation failed');
   try{const clean=r.text.replace(/^\`\`\`json\s*/,'').replace(/\s*\`\`\`$/,'');return JSON.parse(clean)}catch(e){throw Error('AI returned an invalid automation pack.')}
 }
-async function integrationsStatus(){
+function integrationsStatus(){
   return {
     youtube:Boolean(process.env.YOUTUBE_CLIENT_ID&&process.env.YOUTUBE_CLIENT_SECRET&&process.env.YOUTUBE_REFRESH_TOKEN),
     instagram:Boolean(process.env.INSTAGRAM_ACCESS_TOKEN&&process.env.INSTAGRAM_USER_ID),
