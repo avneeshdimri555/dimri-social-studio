@@ -1,4 +1,4 @@
-const http=require('node:http'),fs=require('node:fs'),path=require('node:path');
+const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),os=require('node:os'),{promisify}=require('node:util'),{execFile}=require('node:child_process'),execFileAsync=promisify(execFile);
 const PORT=process.env.PORT||3000,ROOT=path.join(__dirname,'public'),MIME={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.json':'application/json; charset=utf-8'};
 function json(res,status,data){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data))}
 function safeMessage(d,fallback){return String(d?.error?.message||fallback).slice(0,240)}
@@ -60,6 +60,17 @@ async function generateHiggsfieldVideo(prompt,duration=5,aspectRatio='9:16'){
   return {request_id:result?.request_id||result?.id||null,status:'completed',video:{url:videoUrl},raw:result};
 }
 
+async function assembleVideoFromUrls(urls){
+  const dir=await fs.promises.mkdtemp(path.join(os.tmpdir(),'dimri-social-'));const list=path.join(dir,'list.txt'),out=path.join(dir,'final.mp4');
+  try{
+    const lines=[];
+    for(let i=0;i<urls.length;i++){const r=await fetch(urls[i]);if(!r.ok)throw Error('Could not download generated clip '+(i+1));const p=path.join(dir,String(i).padStart(3,'0')+'.mp4');await fs.promises.writeFile(p,Buffer.from(await r.arrayBuffer()));lines.push("file '"+p.replace(/'/g,"'\\''")+"'");}
+    await fs.promises.writeFile(list,lines.join('\n'));
+    const ffmpeg=require('ffmpeg-static');if(!ffmpeg)throw Error('FFmpeg runtime is unavailable.');
+    await execFileAsync(ffmpeg,['-y','-f','concat','-safe','0','-i',list,'-c:v','libx264','-preset','veryfast','-crf','23','-c:a','aac','-b:a','128k','-movflags','+faststart',out],{timeout:45*60*1000,maxBuffer:1024*1024});
+    return {path:out,dir};
+  }catch(e){await fs.promises.rm(dir,{recursive:true,force:true});throw e}
+}
 async function runDailyAutomation(mode='shorts'){
   const pack=await automationPlan((process.env.AUTOMATION_LONG_MINUTES||'10')+' minutes');
   const results=[];
@@ -80,8 +91,16 @@ async function runDailyAutomation(mode='shorts'){
     const clips=Math.ceil(targetMinutes*60/30),urls=[];
     const prompts=Array.isArray(item.visual_prompts)&&item.visual_prompts.length?item.visual_prompts:[item.script||item.hook||item.title];
     for(let i=0;i<clips;i++){const p=prompts[i%prompts.length]+'\nScene '+(i+1)+' of '+clips+'. Maintain continuity with the same subject, setting, style and narration.';const v=await generateHiggsfieldVideo(p,30,'16:9');urls.push(v.video.url)}
-    const yt=await youtubeUploadFromUrl(urls[0],{title:item.title,description:item.youtube_description||'',privacyStatus:'public'});
-    return {mode,results:[{title:item.title,requestedMinutes:targetMinutes,generatedClips:clips,note:'Long-video assembly is queued for the rendering worker; first verified generated clip was uploaded as a safety fallback.',youtube:yt}]};
+    const assembled=await assembleVideoFromUrls(urls);
+    const bytes=await fs.promises.readFile(assembled.path);
+    const tempUrl=process.env.INTERNAL_UPLOAD_URL;
+    if(!tempUrl)throw Error('Long-video assembly completed, but no public upload/storage adapter is configured yet. Set INTERNAL_UPLOAD_URL or use the storage worker.');
+    const upload=await fetch(tempUrl,{method:'POST',headers:{'Content-Type':'video/mp4','X-Filename':item.title.replace(/[^a-z0-9_-]+/gi,'-').slice(0,80)+'.mp4'},body:bytes});
+    if(!upload.ok)throw Error('Long-video assembled but storage upload failed.');
+    const stored=await upload.json();if(!stored.url)throw Error('Storage adapter did not return a public video URL.');
+    const yt=await youtubeUploadFromUrl(stored.url,{title:item.title,description:item.youtube_description||'',privacyStatus:'public'});
+    await fs.promises.rm(assembled.dir,{recursive:true,force:true});
+    return {mode,results:[{title:item.title,requestedMinutes:targetMinutes,generatedClips:clips,storageUrl:stored.url,youtube:yt}]};
   }
   throw Error('Unknown automation mode.');
 }
