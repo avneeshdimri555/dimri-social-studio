@@ -92,6 +92,51 @@ async function generateVideoWithFallback(prompt,duration=5,aspectRatio="9:16"){
   throw Error("All configured video providers failed. "+errors.join(" | "));
 }
 
+const VIDEO_ENGINE_SPECS={
+  "fal-flux3-draft":{provider:"fal",model:"blackforestlabs/flux-3/draft/text-to-video",max:15},
+  "fal-h3max":{provider:"fal",model:"minimax/h3-max/text-to-video",max:15},
+  "fal-wan3":{provider:"fal",model:"alibaba/wan-3.0/text-to-video",max:10},
+  "fal-grok":{provider:"fal",model:"xai/grok-imagine-video/v1.5/text-to-video",max:15},
+  "fal-pika":{provider:"fal",model:"fal-ai/pika/v2.2/text-to-video",max:10},
+  "fal-kling":{provider:"fal",model:"fal-ai/kling-video/o3/standard/text-to-video",max:15},
+  "fal-hunyuan":{provider:"fal",model:"fal-ai/hunyuan-video-v1.5/text-to-video",max:10},
+  "higgsfield":{provider:"higgsfield",model:process.env.HF_VIDEO_MODEL||"bytedance/seedance-2.5/text-to-video",max:30}
+};
+function configuredVideoEngines(){
+  const order=(process.env.VIDEO_PROVIDER_ORDER||"fal-flux3-draft,fal-h3max,fal-wan3,fal-grok,fal-pika,fal-kling,fal-hunyuan,higgsfield").split(",").map(x=>x.trim()).filter(Boolean);
+  return order.filter(id=>VIDEO_ENGINE_SPECS[id] && ((VIDEO_ENGINE_SPECS[id].provider==="fal"&&process.env.FAL_KEY)||(VIDEO_ENGINE_SPECS[id].provider==="higgsfield"&&(process.env.HF_CREDENTIALS||process.env.HF_API_KEY||process.env.HF_API_KEY_ID&&process.env.HF_API_KEY_SECRET))));
+}
+async function generateFalVideo(engineId,prompt,duration=5,aspectRatio="9:16"){
+  if(!process.env.FAL_KEY)throw Error("FAL_KEY is not configured.");
+  const spec=VIDEO_ENGINE_SPECS[engineId]; if(!spec||spec.provider!=="fal")throw Error("Unknown fal video engine.");
+  const {fal}=await import("@fal-ai/client");
+  fal.config({credentials:process.env.FAL_KEY});
+  const d=Math.max(5,Math.min(spec.max,Number(duration)||5));
+  const input={prompt:String(prompt),duration:d,aspect_ratio:aspectRatio};
+  if(engineId==="fal-wan3")Object.assign(input,{resolution:"720p",audio:true});
+  if(engineId==="fal-kling")Object.assign(input,{generate_audio:true});
+  if(engineId==="fal-flux3-draft")Object.assign(input,{resolution:"720p",generate_audio:true});
+  if(engineId==="fal-h3max")Object.assign(input,{resolution:"768P",prompt_expansion_mode:"disabled"});
+  const result=await fal.subscribe(spec.model,{input,logs:false});
+  const video=result?.data?.video||result?.data?.output?.video||result?.video||result?.output?.video;
+  const url=typeof video==="string"?video:video?.url;
+  if(!url)throw Error(engineId+" completed without a video URL.");
+  return {request_id:result?.requestId||null,status:"completed",engine:engineId,video:{url},duration:d};
+}
+async function generateVideoWithFallback(prompt,duration=5,aspectRatio="9:16"){
+  const engines=configuredVideoEngines();
+  if(!engines.length)throw Error("No video provider is configured. Add FAL_KEY or Higgsfield credentials in Render.");
+  const errors=[];
+  for(const id of engines){
+    try{
+      const spec=VIDEO_ENGINE_SPECS[id];
+      if(spec.provider==="fal")return await generateFalVideo(id,prompt,duration,aspectRatio);
+      return Object.assign(await generateHiggsfieldVideo(prompt,Math.min(spec.max,Number(duration)||5),aspectRatio),{engine:id});
+    }catch(e){errors.push(id+": "+String(e.message||e).slice(0,160));}
+  }
+  throw Error("All configured video providers failed. "+errors.join(" | "));
+}
+
 async function generateHiggsfieldVideo(prompt,duration=5,aspectRatio='9:16'){
   const credentials=process.env.HF_CREDENTIALS||(process.env.HF_API_KEY_ID&&process.env.HF_API_KEY_SECRET?process.env.HF_API_KEY_ID+':'+process.env.HF_API_KEY_SECRET:process.env.HF_API_KEY);
   if(!credentials)throw Error('Higgsfield video generation is not configured.');
