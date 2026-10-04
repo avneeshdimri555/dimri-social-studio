@@ -26,6 +26,8 @@ Last updated: 2026-10-04
 - [x] Added multi-provider video fallback layer with 8 engines: 7 fal.ai video engines plus Higgsfield; provider order is configurable and only configured credentials are attempted.
 - [x] Added fal.ai and Google GenAI SDK dependencies for the multi-provider architecture.
 - [x] Daily short/long generation now uses the configured provider fallback layer instead of being hard-wired to Higgsfield.
+- [x] Added single-story and episodic-series planning modes, including series arc, character visual DNA, continuity rules, episode synopsis/story/cliffhanger, and scene prompts.
+- [x] Added scene-level UI flow for generating an image, then generating its video clip from a motion prompt.
 
 ## Deployment
 - Render service: dimri-social-studio
@@ -37,10 +39,11 @@ Last updated: 2026-10-04
 - Latest deploy: dep-db0vdartqb8s738qchpg
 - Latest deploy status: live (Render verified)
 - Current service secret: AUTOMATION_CRON_SECRET configured server-side.
-- Latest fix: corrected the integrations-status handler syntax that had caused the previous deployment to fail.
+- Latest verified live code before current queued updates: 0400d9f26221b98c720d479b317f973c9ab00c16. Newer image-generation and story/series UI commits are deploying; verify before calling them live.
 
 ## Pending / limitations
-- Actual Gemini generation still depends on a valid provider API key and available quota.
+- Story planning and image generation require a valid Gemini API key/quota (or OpenAI key for story planning fallback); no credentials are assumed.
+- Scene image generation and scene-to-video flow are implemented but have not yet passed an end-to-end provider test.
 - Google Flow's free browser credits are not an API credential; Flow itself is not treated as an unattended server-side provider. Veo API is a separate paid API path.
 - fal.ai has some free daily sandbox offers for specific models, but API usage/limits must be verified per account; do not assume unlimited free API generation.
 - OpenAI fallback activates only when OPENAI_API_KEY is configured in Render.
