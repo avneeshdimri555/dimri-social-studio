@@ -2,6 +2,8 @@
 Last updated: 2026-10-04
 
 ## Completed
+- [x] Added a Social Studio-only company structure API with 17 functional departments, specialist roles and 12 cross-functional pods.
+- [x] Added an AI Teams & Pods page to the Social Studio UI that reads the company structure from the backend and clearly labels roles as a catalogue, not active autonomous agents.
 - [x] Dedicated GitHub repository: https://github.com/avneeshdimri555/dimri-social-studio
 - [x] Design #4 (Dashboard + AI Workspace) implemented in responsive dark command-center UI.
 - [x] Workspace navigation and content creation forms implemented.
@@ -41,7 +43,11 @@ Last updated: 2026-10-04
 - Current service secret: AUTOMATION_CRON_SECRET configured server-side.
 - Latest verified live code before current queued updates: 0400d9f26221b98c720d479b317f973c9ab00c16. Newer image-generation and story/series UI commits are deploying; verify before calling them live.
 
-## Pending / limitations
+## Pending
+- [ ] Deploy and verify the new company structure API and AI Teams & Pods UI on Render.
+- [ ] Implement durable task/job/comment/approval storage in a Social Studio-owned database or approved persistent service; free-tier persistence is currently constrained.
+- [ ] Implement actual agent execution, permission enforcement, budget controls, audit history and owner kill switch. The current roster is a role catalogue only.
+ / limitations
 - Story planning and image generation require a valid Gemini API key/quota (or OpenAI key for story planning fallback); no credentials are assumed.
 - Scene image generation and scene-to-video flow are implemented but have not yet passed an end-to-end provider test.
 - Google Flow's free browser credits are not an API credential; Flow itself is not treated as an unattended server-side provider. Veo API is a separate paid API path.
