@@ -33,10 +33,41 @@ async function openai(prompt){
     return text?{ok:true,text,provider:'openai',model:process.env.OPENAI_MODEL||'gpt-4o-mini'}:{ok:false,status:502,error:'OpenAI returned an empty response.'};
   }catch(e){return {ok:false,status:502,error:'OpenAI connection failed.'}}
 }
+
+async function automationPlan(longDuration='15 minutes'){
+  const prompt='Create a daily social media production pack. Return ONLY valid JSON with an items array of exactly 3 unique content concepts: two short vertical video concepts and one long YouTube concept. The two short concepts must be suitable for the same assets to be published on YouTube Shorts and Instagram Reels. Long video duration: '+longDuration+'. For each item include title, type, duration, hook, script, shot_list, voiceover, visual_prompts, caption, youtube_description. Short videos should be 30-60 seconds and include exact shot timecodes. The long video should be '+longDuration+' and include a complete scene/timecode plan. Avoid fabricated facts and use placeholders where necessary.';
+  let r=await gemini(prompt); if(!r.ok)r=await openai(prompt);
+  if(!r.ok)throw Error(r.error||'AI generation failed');
+  try{const clean=r.text.replace(/^\`\`\`json\s*/,'').replace(/\s*\`\`\`$/,'');return JSON.parse(clean)}catch(e){throw Error('AI returned an invalid automation pack.')}
+}
+async function integrationsStatus(){
+  return {
+    youtube:Boolean(process.env.YOUTUBE_CLIENT_ID&&process.env.YOUTUBE_CLIENT_SECRET&&process.env.YOUTUBE_REFRESH_TOKEN),
+    instagram:Boolean(process.env.INSTAGRAM_ACCESS_TOKEN&&process.env.INSTAGRAM_USER_ID),
+    video:Boolean(process.env.HF_API_KEY_ID&&process.env.HF_API_KEY_SECRET),
+  };
+}
+async function generateHiggsfieldVideo(prompt,duration=5,aspectRatio='9:16'){
+  if(!process.env.HF_API_KEY_ID||!process.env.HF_API_KEY_SECRET)throw Error('Higgsfield video generation is not configured.');
+  const r=await fetch('https://api.higgsfield.ai/bytedance/seedance-2.0/text-to-video',{method:'POST',headers:{Authorization:'Key '+process.env.HF_API_KEY_ID+':'+process.env.HF_API_KEY_SECRET,'Content-Type':'application/json'},body:JSON.stringify({prompt,resolution:'720p',generate_audio:true,duration:Math.min(15,Math.max(4,Number(duration)||5)),aspect_ratio:aspectRatio})});
+  const d=await r.json();if(!r.ok)throw Error(safeMessage(d,'Higgsfield generation failed.'));
+  return d;
+}
+
 http.createServer((req,res)=>{
   const url=new URL(req.url,'http://localhost');
-  if(req.method==='GET'&&url.pathname==='/health')return json(res,200,{ok:true,service:'DIMRI Social Studio',aiConfigured:Boolean(process.env.GEMINI_API_KEY||process.env.OPENAI_API_KEY),providers:{gemini:Boolean(process.env.GEMINI_API_KEY),openai:Boolean(process.env.OPENAI_API_KEY)}});
-  if(req.method==='POST'&&url.pathname==='/api/generate'){
+  if(req.method==='GET'&&url.pathname==='/health')return json(res,200,{ok:true,service:'DIMRI Social Studio',aiConfigured:Boolean(process.env.GEMINI_API_KEY||process.env.OPENAI_API_KEY),providers:{gemini:Boolean(process.env.GEMINI_API_KEY),openai:Boolean(process.env.OPENAI_API_KEY)},integrations:{youtube:Boolean(process.env.YOUTUBE_CLIENT_ID&&process.env.YOUTUBE_CLIENT_SECRET&&process.env.YOUTUBE_REFRESH_TOKEN),instagram:Boolean(process.env.INSTAGRAM_ACCESS_TOKEN&&process.env.INSTAGRAM_USER_ID),video:Boolean(process.env.HF_API_KEY_ID&&process.env.HF_API_KEY_SECRET)}});
+  
+  if(req.method==='GET'&&url.pathname==='/api/integrations/status')return json(res,200,await integrationsStatus());
+  if(req.method==='POST'&&url.pathname==='/api/automation/plan'){
+    let raw='';req.on('data',c=>{raw+=c;if(raw.length>10000)req.destroy()});req.on('end',async()=>{try{const i=JSON.parse(raw||'{}'),pack=await automationPlan(String(i.longDuration||'15 minutes'));return json(res,200,{items:pack.items||[]})}catch(e){return json(res,502,{error:e.message||'Automation plan failed.'})}});
+    return;
+  }
+  if(req.method==='POST'&&url.pathname==='/api/video/generate'){
+    let raw='';req.on('data',c=>{raw+=c;if(raw.length>20000)req.destroy()});req.on('end',async()=>{try{const i=JSON.parse(raw||'{}');if(!String(i.prompt||'').trim())return json(res,400,{error:'Video prompt is required.'});const d=await generateHiggsfieldVideo(String(i.prompt),Number(i.duration||5),String(i.aspectRatio||'9:16'));return json(res,202,d)}catch(e){return json(res,502,{error:e.message||'Video generation failed.'})}});return;
+  }
+
+if(req.method==='POST'&&url.pathname==='/api/generate'){
     if(!process.env.GEMINI_API_KEY&&!process.env.OPENAI_API_KEY)return json(res,503,{error:'AI is not configured. Add GEMINI_API_KEY or OPENAI_API_KEY to Render environment settings.'});
     let raw='';req.on('data',c=>{raw+=c;if(raw.length>50000)req.destroy()});req.on('end',async()=>{
       try{
