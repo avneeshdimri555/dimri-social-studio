@@ -1,5 +1,5 @@
 # DIMRI Social Studio — Project Status
-Last updated: 2026-10-04
+Last updated: 2026-10-04 (verification pass)
 
 ## Completed
 - [x] Added a Social Studio-only company structure API with 17 functional departments, specialist roles and 12 cross-functional pods.
@@ -37,14 +37,25 @@ Last updated: 2026-10-04
 - Workspace: DIMRI STUDIO
 - Plan/region: Free / Singapore
 - Auto-deploy: enabled for main
-- Last verified live commit: f1a62b5b3fd63a8255bffb27c0f7b9d09df20dbf
-- Latest deploy: dep-db0vdartqb8s738qchpg
-- Latest deploy status: live (Render verified)
-- Current service secret: AUTOMATION_CRON_SECRET configured server-side.
-- Latest verified live code before current queued updates: 0400d9f26221b98c720d479b317f973c9ab00c16. Newer image-generation and story/series UI commits are deploying; verify before calling them live.
+- Last verified live commit: bff5155cf80d3cf3e58232fec96b92f7520d0821
+- Latest deploy: dep-db12qs6kemhc73f39uu0
+- Latest deploy status: live (Render deployment record verified)
+- Runtime logs confirm successful `npm install`, `found 0 vulnerabilities`, `node server.js` startup, listening on port 10000, and Render marked the service live.
+- Render service configuration currently reports no HTTP health-check path. The `/health` route exists in code, but external HTTP/browser response was not independently verified in this pass.
+- `AUTOMATION_CRON_SECRET` was previously reported configured; secret value is not displayed or copied.
+- Current deployed UI includes AI Teams & Pods wording update; deployment success does not verify every API/provider workflow.
+
+## Verification pass (2026-10-04)
+- [x] Checked Render service configuration: correct repository, `main` branch, auto-deploy enabled, free plan, Singapore region, not suspended.
+- [x] Checked latest deploy list: `dep-db12qs6kemhc73f39uu0` is `live` for commit `bff5155cf80d3cf3e58232fec96b92f7520d0821`.
+- [x] Reviewed latest runtime logs: dependency install/build succeeded and server announced listening on port 10000; Render marked service live.
+- [x] Reviewed `package.json`, API route declarations, integration gating, company structure API and current status document.
+- [ ] Direct live HTTP tests for `/`, `/health`, `/api/company/structure`, and `/api/integrations/status` could not be completed through the available execution channel.
+- [ ] No real AI, image, video, YouTube or Instagram generation/publishing transaction was executed in this pass; provider secrets/quota and platform authorization are not verified here.
+- [ ] No durable database, active scheduler, or autonomous agent runtime is confirmed live.
 
 ## Pending
-- [ ] Deploy and verify the new company structure API and AI Teams & Pods UI on Render.
+- [x] Deploy the company structure API and AI Teams & Pods UI; latest deployment record is live. Direct endpoint response/browser QA remains unverified.
 - [ ] Implement durable task/job/comment/approval storage in a Social Studio-owned database or approved persistent service; free-tier persistence is currently constrained.
 - [ ] Implement actual agent execution, permission enforcement, budget controls, audit history and owner kill switch. The current roster is a role catalogue only.
  / limitations
