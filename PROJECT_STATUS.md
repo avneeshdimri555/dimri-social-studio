@@ -1,5 +1,5 @@
 # DIMRI Social Studio — Project Status
-Last updated: 2026-10-04 (verification pass)
+Last updated: 2026-10-04 (UI fix committed; deployment verification pending)
 
 ## Completed
 - [x] Added a Social Studio-only company structure API with 17 functional departments, specialist roles and 12 cross-functional pods.
@@ -30,6 +30,10 @@ Last updated: 2026-10-04 (verification pass)
 - [x] Daily short/long generation now uses the configured provider fallback layer instead of being hard-wired to Higgsfield.
 - [x] Added single-story and episodic-series planning modes, including series arc, character visual DNA, continuity rules, episode synopsis/story/cliffhanger, and scene prompts.
 - [x] Added scene-level UI flow for generating an image, then generating its video clip from a motion prompt.
+
+## Latest change
+- [x] Fixed Daily Content Engine queue labels so the three AI concepts display as Short 1 + Reel 1, Short 2 + Reel 2, and YouTube Long Video. This corrects the previous misleading five-row labelling of a three-item plan.
+- [ ] Verify this UI fix in the new Render deployment and complete browser/API QA.
 
 ## Deployment
 - Render service: dimri-social-studio
