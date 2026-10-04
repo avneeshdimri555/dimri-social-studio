@@ -44,9 +44,54 @@ function integrationsStatus(){
   return {
     youtube:Boolean(process.env.YOUTUBE_CLIENT_ID&&process.env.YOUTUBE_CLIENT_SECRET&&process.env.YOUTUBE_REFRESH_TOKEN),
     instagram:Boolean(process.env.INSTAGRAM_ACCESS_TOKEN&&process.env.INSTAGRAM_USER_ID),
-    video:Boolean(process.env.HF_CREDENTIALS||process.env.HF_API_KEY||process.env.HF_API_KEY_ID&&process.env.HF_API_KEY_SECRET),
+    video:configuredVideoEngines().length>0,videoEngines:configuredVideoEngines(),
   };
 }
+const VIDEO_ENGINE_SPECS={
+  "fal-flux3-draft":{provider:"fal",model:"blackforestlabs/flux-3/draft/text-to-video",max:15},
+  "fal-h3max":{provider:"fal",model:"minimax/h3-max/text-to-video",max:15},
+  "fal-wan3":{provider:"fal",model:"alibaba/wan-3.0/text-to-video",max:10},
+  "fal-grok":{provider:"fal",model:"xai/grok-imagine-video/v1.5/text-to-video",max:15},
+  "fal-pika":{provider:"fal",model:"fal-ai/pika/v2.2/text-to-video",max:10},
+  "fal-kling":{provider:"fal",model:"fal-ai/kling-video/o3/standard/text-to-video",max:15},
+  "fal-hunyuan":{provider:"fal",model:"fal-ai/hunyuan-video-v1.5/text-to-video",max:10},
+  "higgsfield":{provider:"higgsfield",model:process.env.HF_VIDEO_MODEL||"bytedance/seedance-2.5/text-to-video",max:30}
+};
+function configuredVideoEngines(){
+  const order=(process.env.VIDEO_PROVIDER_ORDER||"fal-flux3-draft,fal-h3max,fal-wan3,fal-grok,fal-pika,fal-kling,fal-hunyuan,higgsfield").split(",").map(x=>x.trim()).filter(Boolean);
+  return order.filter(id=>VIDEO_ENGINE_SPECS[id] && ((VIDEO_ENGINE_SPECS[id].provider==="fal"&&process.env.FAL_KEY)||(VIDEO_ENGINE_SPECS[id].provider==="higgsfield"&&(process.env.HF_CREDENTIALS||process.env.HF_API_KEY||process.env.HF_API_KEY_ID&&process.env.HF_API_KEY_SECRET))));
+}
+async function generateFalVideo(engineId,prompt,duration=5,aspectRatio="9:16"){
+  if(!process.env.FAL_KEY)throw Error("FAL_KEY is not configured.");
+  const spec=VIDEO_ENGINE_SPECS[engineId]; if(!spec||spec.provider!=="fal")throw Error("Unknown fal video engine.");
+  const {fal}=await import("@fal-ai/client");
+  fal.config({credentials:process.env.FAL_KEY});
+  const d=Math.max(5,Math.min(spec.max,Number(duration)||5));
+  const input={prompt:String(prompt),duration:d,aspect_ratio:aspectRatio};
+  if(engineId==="fal-wan3")Object.assign(input,{resolution:"720p",audio:true});
+  if(engineId==="fal-kling")Object.assign(input,{generate_audio:true});
+  if(engineId==="fal-flux3-draft")Object.assign(input,{resolution:"720p",generate_audio:true});
+  if(engineId==="fal-h3max")Object.assign(input,{resolution:"768P",prompt_expansion_mode:"disabled"});
+  const result=await fal.subscribe(spec.model,{input,logs:false});
+  const video=result?.data?.video||result?.data?.output?.video||result?.video||result?.output?.video;
+  const url=typeof video==="string"?video:video?.url;
+  if(!url)throw Error(engineId+" completed without a video URL.");
+  return {request_id:result?.requestId||null,status:"completed",engine:engineId,video:{url},duration:d};
+}
+async function generateVideoWithFallback(prompt,duration=5,aspectRatio="9:16"){
+  const engines=configuredVideoEngines();
+  if(!engines.length)throw Error("No video provider is configured. Add FAL_KEY or Higgsfield credentials in Render.");
+  const errors=[];
+  for(const id of engines){
+    try{
+      const spec=VIDEO_ENGINE_SPECS[id];
+      if(spec.provider==="fal")return await generateFalVideo(id,prompt,duration,aspectRatio);
+      return Object.assign(await generateHiggsfieldVideo(prompt,Math.min(spec.max,Number(duration)||5),aspectRatio),{engine:id});
+    }catch(e){errors.push(id+": "+String(e.message||e).slice(0,160));}
+  }
+  throw Error("All configured video providers failed. "+errors.join(" | "));
+}
+
 async function generateHiggsfieldVideo(prompt,duration=5,aspectRatio='9:16'){
   const credentials=process.env.HF_CREDENTIALS||(process.env.HF_API_KEY_ID&&process.env.HF_API_KEY_SECRET?process.env.HF_API_KEY_ID+':'+process.env.HF_API_KEY_SECRET:process.env.HF_API_KEY);
   if(!credentials)throw Error('Higgsfield video generation is not configured.');
@@ -88,7 +133,7 @@ async function runDailyAutomation(mode='shorts'){
     for(let i=0;i<2;i++){
       const item=pack.items[i];if(!item)continue;
       const prompt=[item.hook,item.script,(item.visual_prompts||[]).join(' | '),item.shot_list].filter(Boolean).join('\n');
-      const video=await generateHiggsfieldVideo(prompt,30,'9:16');
+      const video=await generateVideoWithFallback(prompt,15,'9:16');
       const yt=await youtubeUploadFromUrl(video.video.url,{title:item.title,description:item.youtube_description||item.caption||'',privacyStatus:'public'});
       const ig=await instagramPublishReel(video.video.url,item.caption||item.title);
       results.push({slot:'short_'+(i+1),title:item.title,video:video.video.url,youtube:yt,instagram:ig});
@@ -100,7 +145,7 @@ async function runDailyAutomation(mode='shorts'){
     const targetMinutes=Math.max(10,Math.min(20,Number(process.env.AUTOMATION_LONG_MINUTES||10)));
     const clips=Math.ceil(targetMinutes*60/30),urls=[];
     const prompts=Array.isArray(item.visual_prompts)&&item.visual_prompts.length?item.visual_prompts:[item.script||item.hook||item.title];
-    for(let i=0;i<clips;i++){const p=prompts[i%prompts.length]+'\nScene '+(i+1)+' of '+clips+'. Maintain continuity with the same subject, setting, style and narration.';const v=await generateHiggsfieldVideo(p,30,'16:9');urls.push(v.video.url)}
+    for(let i=0;i<clips;i++){const p=prompts[i%prompts.length]+'\nScene '+(i+1)+' of '+clips+'. Maintain continuity with the same subject, setting, style and narration.';const v=await generateVideoWithFallback(p,15,'16:9');urls.push(v.video.url)}
     const assembled=await assembleVideoFromUrls(urls);
     const storedUrl=await uploadToHiggsfieldStorage(assembled.path);
     const yt=await youtubeUploadFromUrl(storedUrl,{title:item.title,description:item.youtube_description||'',privacyStatus:'public'});
@@ -112,7 +157,7 @@ async function runDailyAutomation(mode='shorts'){
 
 http.createServer(async (req,res)=>{
   const url=new URL(req.url,'http://localhost');
-  if(req.method==='GET'&&url.pathname==='/health')return json(res,200,{ok:true,service:'DIMRI Social Studio',aiConfigured:Boolean(process.env.GEMINI_API_KEY||process.env.OPENAI_API_KEY),providers:{gemini:Boolean(process.env.GEMINI_API_KEY),openai:Boolean(process.env.OPENAI_API_KEY)},integrations:{youtube:Boolean(process.env.YOUTUBE_CLIENT_ID&&process.env.YOUTUBE_CLIENT_SECRET&&process.env.YOUTUBE_REFRESH_TOKEN),instagram:Boolean(process.env.INSTAGRAM_ACCESS_TOKEN&&process.env.INSTAGRAM_USER_ID),video:Boolean(process.env.HF_API_KEY_ID&&process.env.HF_API_KEY_SECRET)}});
+  if(req.method==='GET'&&url.pathname==='/health')return json(res,200,{ok:true,service:'DIMRI Social Studio',aiConfigured:Boolean(process.env.GEMINI_API_KEY||process.env.OPENAI_API_KEY),providers:{gemini:Boolean(process.env.GEMINI_API_KEY),openai:Boolean(process.env.OPENAI_API_KEY)},integrations:{youtube:Boolean(process.env.YOUTUBE_CLIENT_ID&&process.env.YOUTUBE_CLIENT_SECRET&&process.env.YOUTUBE_REFRESH_TOKEN),instagram:Boolean(process.env.INSTAGRAM_ACCESS_TOKEN&&process.env.INSTAGRAM_USER_ID),video:configuredVideoEngines().length>0,videoEngines:configuredVideoEngines()}});
   
   if(req.method==='GET'&&url.pathname==='/auth/youtube'){if(!process.env.YOUTUBE_CLIENT_ID)return html(res,503,'<p>YOUTUBE_CLIENT_ID is not configured in Render.</p>');const redirect=publicBaseUrl(req)+'/auth/youtube/callback';const q=new URLSearchParams({client_id:process.env.YOUTUBE_CLIENT_ID,redirect_uri:redirect,response_type:'code',access_type:'offline',prompt:'consent',scope:'https://www.googleapis.com/auth/youtube.upload'});res.writeHead(302,{Location:'https://accounts.google.com/o/oauth2/v2/auth?'+q.toString()});return res.end()}
   if(req.method==='GET'&&url.pathname==='/auth/youtube/callback'){try{const code=url.searchParams.get('code');if(!code)return html(res,400,'<p>Missing OAuth code.</p>');const redirect=publicBaseUrl(req)+'/auth/youtube/callback';const r=await fetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({code,client_id:process.env.YOUTUBE_CLIENT_ID,client_secret:process.env.YOUTUBE_CLIENT_SECRET,redirect_uri:redirect,grant_type:'authorization_code'})});const d=await r.json();if(!r.ok)return html(res,502,'<p>OAuth exchange failed.</p><pre>'+JSON.stringify(d,null,2)+'</pre>');return html(res,200,'<p>Google OAuth completed.</p><p><b>Refresh token:</b></p><textarea style="width:100%;min-height:100px;background:#111925;color:#fff">'+String(d.refresh_token||'')+'</textarea><p>Save this value in Render as <b>YOUTUBE_REFRESH_TOKEN</b>. Do not publish it or commit it to GitHub.</p>')}catch(e){return html(res,500,'<p>'+String(e.message||e)+'</p>')}}
@@ -126,7 +171,7 @@ http.createServer(async (req,res)=>{
     return;
   }
   if(req.method==='POST'&&url.pathname==='/api/video/generate'){
-    let raw='';req.on('data',c=>{raw+=c;if(raw.length>20000)req.destroy()});req.on('end',async()=>{try{const i=JSON.parse(raw||'{}');if(!String(i.prompt||'').trim())return json(res,400,{error:'Video prompt is required.'});const d=await generateHiggsfieldVideo(String(i.prompt),Number(i.duration||5),String(i.aspectRatio||'9:16'));return json(res,202,d)}catch(e){return json(res,502,{error:e.message||'Video generation failed.'})}});return;
+    let raw='';req.on('data',c=>{raw+=c;if(raw.length>20000)req.destroy()});req.on('end',async()=>{try{const i=JSON.parse(raw||'{}');if(!String(i.prompt||'').trim())return json(res,400,{error:'Video prompt is required.'});const d=await generateVideoWithFallback(String(i.prompt),Number(i.duration||5),String(i.aspectRatio||'9:16'));return json(res,202,d)}catch(e){return json(res,502,{error:e.message||'Video generation failed.'})}});return;
   }
 
 if(req.method==='POST'&&url.pathname==='/api/generate'){
