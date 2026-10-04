@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@higgsfield/client": "latest",
-    "ffmpeg-static": "latest"
+    "ffmpeg-static": "latest",
+    "@fal-ai/client": "latest",
+    "@google/genai": "latest"
   }
 }
