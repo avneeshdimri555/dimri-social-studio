@@ -9,7 +9,7 @@ async function gemini(prompt){
   let last={ok:false,status:502,error:'Gemini request failed.'};
   for(const model of models){
     try{
-      const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent?key='+encodeURIComponent(process.env.GEMINI_API_KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:.75,maxOutputTokens:1200}})});
+      const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent?key='+encodeURIComponent(process.env.GEMINI_API_KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:.75,maxOutputTokens:7000}})});
       const d=await r.json();
       if(r.ok){
         const text=d?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('').trim();
@@ -26,7 +26,7 @@ async function gemini(prompt){
 async function openai(prompt){
   if(!process.env.OPENAI_API_KEY)return {ok:false,status:503,error:'OpenAI fallback is not configured.'};
   try{
-    const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+process.env.OPENAI_API_KEY},body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-4o-mini',messages:[{role:'user',content:prompt}],temperature:.75,max_tokens:1200})});
+    const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+process.env.OPENAI_API_KEY},body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-4o-mini',messages:[{role:'user',content:prompt}],temperature:.75,max_tokens:7000})});
     const d=await r.json();
     if(!r.ok)return {ok:false,status:r.status,error:safeMessage(d,'OpenAI request failed.')};
     const text=d?.choices?.[0]?.message?.content?.trim();
@@ -40,11 +40,11 @@ http.createServer((req,res)=>{
     if(!process.env.GEMINI_API_KEY&&!process.env.OPENAI_API_KEY)return json(res,503,{error:'AI is not configured. Add GEMINI_API_KEY or OPENAI_API_KEY to Render environment settings.'});
     let raw='';req.on('data',c=>{raw+=c;if(raw.length>50000)req.destroy()});req.on('end',async()=>{
       try{
-        const i=JSON.parse(raw||'{}'),brief=String(i.brief||'').trim(),type=['caption','idea','script','hashtags'].includes(i.type)?i.type:'caption';
+        const i=JSON.parse(raw||'{}'),brief=String(i.brief||'').trim(),type=['caption','idea','script','storyboard','production','hashtags'].includes(i.type)?i.type:'caption',duration=String(i.duration||'30 seconds'),videoFormat=String(i.videoFormat||'Short-form vertical (9:16)');
         if(!brief)return json(res,400,{error:'A content brief is required.'});
         if(brief.length>4000)return json(res,400,{error:'Please keep the brief under 4,000 characters.'});
-        const specs={caption:'Write a polished social caption with a natural hook and optional concise call to action.',idea:'Provide 5 distinct, actionable content ideas with a short angle for each.',script:'Write a short-form video script with hook, scene directions, spoken lines, and CTA.',hashtags:'Suggest relevant, non-spammy hashtags; do not promise reach.'};
-        const prompt='You are a creative social media writing assistant. Produce only the requested draft. Do not invent facts, statistics, testimonials, or results; use placeholders when details are missing.\nPlatform: '+String(i.platform||'Instagram')+'\nOutput: '+type+'\nTone: '+String(i.tone||'Friendly')+'\nLanguage: '+String(i.language||'English')+'\nAudience: '+String(i.audience||'Not specified')+'\nBrief: '+brief+'\n\n'+specs[type];
+        const specs={caption:'Write a polished social caption with a natural hook and optional concise call to action.',idea:'Provide 5 distinct, actionable content ideas with a short angle for each.',script:'Write a complete video script with hook, scene directions, spoken lines, and CTA, fitted to the requested runtime.',storyboard:'Create a shot-by-shot storyboard with numbered shots, exact start and end timecodes, shot duration, visuals, camera movement, dialogue or voiceover, and sound. Ensure shot durations add up exactly to the requested runtime.',production:'Create a complete video production plan with concept, hook, scene-by-scene script, exact shot timecodes and durations, visuals, camera angles, voiceover/dialogue, on-screen text, music and sound effects, transitions, and CTA. Ensure all shot durations add up exactly to the requested runtime.',hashtags:'Suggest relevant, non-spammy hashtags; do not promise reach.'};
+        const prompt='You are a creative social media writing assistant. Produce only the requested draft. Do not invent facts, statistics, testimonials, or results; use placeholders when details are missing.\nPlatform: '+String(i.platform||'Instagram')+'\nOutput: '+type+'\nVideo duration: '+duration+'\nVideo format: '+videoFormat+'\nTone: '+String(i.tone||'Friendly')+'\nLanguage: '+String(i.language||'English')+'\nAudience: '+String(i.audience||'Not specified')+'\nBrief: '+brief+'\n\n'+specs[type];
         let result=await gemini(prompt);
         if(!result.ok)result=await openai(prompt);
         if(!result.ok)return json(res,result.status===429?429:502,{error:'AI generation failed. '+result.error+' If Gemini is rate-limited, the app will use the OpenAI fallback when OPENAI_API_KEY is configured.'});
