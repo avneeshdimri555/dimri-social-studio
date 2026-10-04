@@ -44,14 +44,20 @@ function integrationsStatus(){
   return {
     youtube:Boolean(process.env.YOUTUBE_CLIENT_ID&&process.env.YOUTUBE_CLIENT_SECRET&&process.env.YOUTUBE_REFRESH_TOKEN),
     instagram:Boolean(process.env.INSTAGRAM_ACCESS_TOKEN&&process.env.INSTAGRAM_USER_ID),
-    video:Boolean(process.env.HF_API_KEY_ID&&process.env.HF_API_KEY_SECRET),
+    video:Boolean(process.env.HF_CREDENTIALS||process.env.HF_API_KEY||process.env.HF_API_KEY_ID&&process.env.HF_API_KEY_SECRET),
   };
 }
 async function generateHiggsfieldVideo(prompt,duration=5,aspectRatio='9:16'){
-  if(!process.env.HF_API_KEY_ID||!process.env.HF_API_KEY_SECRET)throw Error('Higgsfield video generation is not configured.');
-  const r=await fetch('https://api.higgsfield.ai/bytedance/seedance-2.0/text-to-video',{method:'POST',headers:{Authorization:'Key '+process.env.HF_API_KEY_ID+':'+process.env.HF_API_KEY_SECRET,'Content-Type':'application/json'},body:JSON.stringify({prompt,resolution:'720p',generate_audio:true,duration:Math.min(15,Math.max(4,Number(duration)||5)),aspect_ratio:aspectRatio})});
-  const d=await r.json();if(!r.ok)throw Error(safeMessage(d,'Higgsfield generation failed.'));
-  return d;
+  const credentials=process.env.HF_CREDENTIALS||(process.env.HF_API_KEY_ID&&process.env.HF_API_KEY_SECRET?process.env.HF_API_KEY_ID+':'+process.env.HF_API_KEY_SECRET:process.env.HF_API_KEY);
+  if(!credentials)throw Error('Higgsfield video generation is not configured.');
+  const {config,higgsfield}=await import('@higgsfield/client/v2');
+  config({credentials});
+  const model=process.env.HF_VIDEO_MODEL||'bytedance/seedance-2.5/text-to-video';
+  const result=await higgsfield.subscribe(model,{input:{prompt:String(prompt),duration:Math.min(30,Math.max(4,Number(duration)||5)),resolution:process.env.HF_VIDEO_RESOLUTION||'720p',aspect_ratio:aspectRatio,output_format:'mp4',generate_audio:true},withPolling:true});
+  const video=result?.video||result?.results?.video||result?.output?.video;
+  const videoUrl=typeof video==='string'?video:video?.url;
+  if(!videoUrl)throw Error('Higgsfield completed without a video URL.');
+  return {request_id:result?.request_id||result?.id||null,status:'completed',video:{url:videoUrl},raw:result};
 }
 
 http.createServer((req,res)=>{
