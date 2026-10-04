@@ -170,6 +170,22 @@ http.createServer(async (req,res)=>{
     let raw='';req.on('data',c=>{raw+=c;if(raw.length>10000)req.destroy()});req.on('end',async()=>{try{const i=JSON.parse(raw||'{}'),pack=await automationPlan(String(i.longDuration||'15 minutes'));return json(res,200,{items:pack.items||[]})}catch(e){return json(res,502,{error:e.message||'Automation plan failed.'})}});
     return;
   }
+  if(req.method==='POST'&&url.pathname==='/api/image/generate'){
+    let raw='';req.on('data',c=>{raw+=c;if(raw.length>12000)req.destroy()});req.on('end',async()=>{
+      try{
+        const i=JSON.parse(raw||'{}'),prompt=String(i.prompt||'').trim();
+        if(!prompt)return json(res,400,{error:'Image prompt is required.'});
+        if(!process.env.GEMINI_API_KEY)return json(res,503,{error:'Scene image generation requires GEMINI_API_KEY in Render. Add it under Environment; never paste it into chat.'});
+        const model=process.env.GEMINI_IMAGE_MODEL||'gemini-2.5-flash-image';
+        const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent?key='+encodeURIComponent(process.env.GEMINI_API_KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:'Generate one high-quality image for this scene. '+prompt}]}],generationConfig:{responseModalities:['TEXT','IMAGE']}})});
+        const d=await r.json();
+        if(!r.ok)return json(res,r.status,{error:safeMessage(d,'Image provider request failed.')});
+        const parts=d?.candidates?.[0]?.content?.parts||[],imagePart=parts.find(p=>p.inlineData?.data||p.inline_data?.data),data=imagePart?.inlineData?.data||imagePart?.inline_data?.data,mimeType=imagePart?.inlineData?.mimeType||imagePart?.inline_data?.mime_type||'image/png';
+        if(!data)return json(res,502,{error:'Image model returned no image. Check model access/quota or try another prompt.'});
+        return json(res,200,{data,mimeType,model,provider:'gemini'});
+      }catch(e){return json(res,502,{error:e.message||'Image generation failed.'})}
+    });return;
+  }
   if(req.method==='POST'&&url.pathname==='/api/story/plan'){
     let raw='';req.on('data',c=>{raw+=c;if(raw.length>12000)req.destroy()});req.on('end',async()=>{
       try{
