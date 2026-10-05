@@ -7,12 +7,12 @@
     "start": "node server.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
     "@higgsfield/client": "latest",
     "ffmpeg-static": "latest",
     "@fal-ai/client": "latest",
-    "@google/genai": "latest"
+    "@google/genai": ">=1.0.0 <3.0.0"
   }
 }
