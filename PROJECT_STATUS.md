@@ -35,6 +35,12 @@ Last updated: 2026-10-04 (UI fix committed; deployment verification pending)
 - [x] Fixed Daily Content Engine queue labels so the three AI concepts display as Short 1 + Reel 1, Short 2 + Reel 2, and YouTube Long Video. This corrects the previous misleading five-row labelling of a three-item plan.
 - [ ] Verify this UI fix in the new Render deployment and complete browser/API QA.
 
+## Production automation wiring — 2026-10-05
+- [x] Set a dedicated `AUTOMATION_CRON_SECRET` and `SOCIAL_STUDIO_URL` on the live Render web service.
+- [x] Render accepted the environment update and started a fresh deployment.
+- [ ] Render cron scheduler creation is blocked by the workspace billing requirement (Render returned HTTP 402: payment information required). No paid scheduler was created.
+- [ ] Daily unattended publishing therefore remains disabled until a paid Render cron/worker is enabled and provider/platform credentials are verified.
+
 ## Deployment
 - Render service: dimri-social-studio
 - URL: https://dimri-social-studio.onrender.com
