@@ -37,42 +37,135 @@ const companyStructure={
 };
 const PORT=process.env.PORT||3000,ROOT=path.join(__dirname,'public'),MIME={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'application/javascript; charset=utf-8','.json':'application/json; charset=utf-8'};
 function json(res,status,data){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data))}
-function safeMessage(d,fallback){return String(d?.error?.message||fallback).slice(0,240)}
-async function gemini(prompt){
-  if(!process.env.GEMINI_API_KEY) return {ok:false,status:503,error:'Gemini is not configured.'};
-  const first=process.env.GEMINI_MODEL||'gemini-2.5-flash';
-  const models=[first,...['gemini-2.5-flash-lite','gemini-2.0-flash'].filter(m=>m!==first)];
+function safeMessage(d,fallback){return String(d?.error?.message||d?.error?.details?.[0]?.message||fallback).slice(0,360)}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
+function retryDelayMs(response,attempt){
+  const h=response?.headers?.get?.('retry-after');
+  const n=Number(h);
+  if(Number.isFinite(n)&&n>0)return Math.min(30000,n*1000);
+  const jitter=Math.floor(Math.random()*350);
+  return Math.min(12000,Math.pow(2,attempt)*1000+jitter);
+}
+function geminiKeys(){
+  const keys=[];
+  if(process.env.GEMINI_API_KEYS)keys.push(...process.env.GEMINI_API_KEYS.split(',').map(x=>x.trim()).filter(Boolean));
+  for(const [k,v] of Object.entries(process.env))if(/^GEMINI_API_KEY_\\d+$/.test(k)&&v)keys.push(String(v).trim());
+  if(process.env.GEMINI_API_KEY)keys.unshift(process.env.GEMINI_API_KEY.trim());
+  return [...new Set(keys.filter(Boolean))];
+}
+function geminiModels(){
+  const configured=(process.env.GEMINI_MODELS||process.env.GEMINI_MODEL||'gemini-3.8-flash,gemini-3.7-flash,gemini-3.5-flash-lite').split(',').map(x=>x.trim()).filter(Boolean);
+  return [...new Set(configured)];
+}
+async function geminiWithKey(prompt,key,model){
+  const maxRetries=Math.max(0,Math.min(3,Number(process.env.GEMINI_RETRIES||2)));
   let last={ok:false,status:502,error:'Gemini request failed.'};
-  for(const model of models){
+  for(let attempt=0;attempt<=maxRetries;attempt++){
     try{
-      const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent?key='+encodeURIComponent(process.env.GEMINI_API_KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:.75,maxOutputTokens:7000}})});
-      const d=await r.json();
+      const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent?key='+encodeURIComponent(key),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:7000}})});
+      const d=await r.json().catch(()=>({}));
       if(r.ok){
         const text=d?.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('').trim();
         if(text)return {ok:true,text,provider:'gemini',model};
         last={ok:false,status:502,error:'Gemini returned an empty response.'};
-      }else{
-        last={ok:false,status:r.status,error:safeMessage(d,r.status===429?'Gemini rate limit reached.':'Gemini request failed.')};
-        if(r.status!==429&&r.status<500)break;
+        break;
       }
-    }catch(e){last={ok:false,status:502,error:'Gemini connection failed.'}}
+      last={ok:false,status:r.status,error:safeMessage(d,r.status===429?'Gemini rate/quota limit reached.':'Gemini request failed.')};
+      const transient=r.status===408||r.status===429||r.status>=500;
+      if(!transient||attempt>=maxRetries)break;
+      await sleep(retryDelayMs(r,attempt));
+    }catch(e){
+      last={ok:false,status:502,error:'Gemini connection failed.'};
+      if(attempt<maxRetries)await sleep(Math.min(8000,1000*Math.pow(2,attempt)));
+    }
   }
   return last;
 }
+async function gemini(prompt){
+  const keys=geminiKeys();
+  if(!keys.length)return {ok:false,status:503,error:'Gemini is not configured.'};
+  const models=geminiModels();
+  let last={ok:false,status:503,error:'Gemini request failed.'};
+  for(const key of keys){
+    for(const model of models){
+      const r=await geminiWithKey(prompt,key,model);
+      if(r.ok)return r;
+      last=r;
+      // Invalid/auth/model errors should not be retried with every model; move to next key/provider.
+      if([400,401,402,403].includes(r.status))break;
+    }
+  }
+  return last;
+}
+async function vertexGemini(prompt){
+  if(!process.env.GOOGLE_CLOUD_PROJECT)return {ok:false,status:503,error:'Google Cloud Vertex AI is not configured.'};
+  try{
+    const {GoogleGenAI}=await import('@google/genai');
+    let credentials;
+    if(process.env.GOOGLE_SERVICE_ACCOUNT_JSON){
+      credentials=JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+    }
+    const options={vertexai:true,project:process.env.GOOGLE_CLOUD_PROJECT,location:process.env.GOOGLE_CLOUD_LOCATION||'global'};
+    if(credentials)options.googleAuthOptions={credentials,clientOptions:{transporterOptions:{fetchImplementation:globalThis.fetch}}};
+    const ai=new GoogleGenAI(options);
+    const model=(process.env.VERTEX_GEMINI_MODEL||'gemini-3.8-flash').trim();
+    const response=await ai.models.generateContent({model,contents:prompt});
+    const text=String(response?.text||'').trim();
+    return text?{ok:true,text,provider:'vertex-gemini',model}:{ok:false,status:502,error:'Vertex Gemini returned an empty response.'};
+  }catch(e){
+    return {ok:false,status:502,error:'Vertex Gemini failed: '+String(e.message||e).slice(0,240)};
+  }
+}
 async function openai(prompt){
   if(!process.env.OPENAI_API_KEY)return {ok:false,status:503,error:'OpenAI fallback is not configured.'};
-  try{
-    const r=await fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+process.env.OPENAI_API_KEY},body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-4o-mini',messages:[{role:'user',content:prompt}],temperature:.75,max_tokens:7000})});
-    const d=await r.json();
-    if(!r.ok)return {ok:false,status:r.status,error:safeMessage(d,'OpenAI request failed.')};
-    const text=d?.choices?.[0]?.message?.content?.trim();
-    return text?{ok:true,text,provider:'openai',model:process.env.OPENAI_MODEL||'gpt-4o-mini'}:{ok:false,status:502,error:'OpenAI returned an empty response.'};
-  }catch(e){return {ok:false,status:502,error:'OpenAI connection failed.'}}
+  const model=process.env.OPENAI_MODEL||'gpt-6-luna';
+  const maxRetries=Math.max(0,Math.min(3,Number(process.env.OPENAI_RETRIES||2)));
+  let last={ok:false,status:502,error:'OpenAI request failed.'};
+  for(let attempt=0;attempt<=maxRetries;attempt++){
+    try{
+      const r=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+process.env.OPENAI_API_KEY},body:JSON.stringify({model,input:prompt,max_output_tokens:7000})});
+      const d=await r.json().catch(()=>({}));
+      if(r.ok){
+        const text=String(d?.output_text||d?.output?.flatMap?.(x=>x?.content||[]).map(x=>x?.text||'').join('')||'').trim();
+        if(text)return {ok:true,text,provider:'openai',model};
+        return {ok:false,status:502,error:'OpenAI returned an empty response.'};
+      }
+      last={ok:false,status:r.status,error:safeMessage(d,'OpenAI request failed.')};
+      if(![408,429,500,502,503,504].includes(r.status)||attempt>=maxRetries)break;
+      await sleep(retryDelayMs(r,attempt));
+    }catch(e){
+      last={ok:false,status:502,error:'OpenAI connection failed.'};
+      if(attempt<maxRetries)await sleep(Math.min(8000,1000*Math.pow(2,attempt)));
+    }
+  }
+  return last;
 }
-
+let aiQueue=Promise.resolve();
+function runAiTask(task){
+  const next=aiQueue.then(task,task);
+  aiQueue=next.catch(()=>{});
+  return next;
+}
+async function aiText(prompt){
+  return runAiTask(async()=>{
+    const providers=[];
+    if(geminiKeys().length)providers.push(['gemini',()=>gemini(prompt)]);
+    if(process.env.GOOGLE_CLOUD_PROJECT)providers.push(['vertex-gemini',()=>vertexGemini(prompt)]);
+    if(process.env.OPENAI_API_KEY)providers.push(['openai',()=>openai(prompt)]);
+    if(!providers.length)return {ok:false,status:503,error:'No AI provider is configured. Add Gemini, Vertex AI, or OpenAI credentials in Render.'};
+    let last={ok:false,status:503,error:'AI provider failed.'};
+    for(const [name,fn] of providers){
+      const r=await fn();
+      if(r.ok)return r;
+      last=r;
+      console.warn('[AI] provider failed',name,r.status,r.error);
+    }
+    return last;
+  });
+}
 async function automationPlan(longDuration='15 minutes'){
   const prompt='Create a daily social media production pack. Return ONLY valid JSON with an items array of exactly 3 unique content concepts: two short vertical video concepts and one long YouTube concept. The two short concepts must be suitable for the same assets to be published on YouTube Shorts and Instagram Reels. Long video duration: '+longDuration+'. For each item include title, type, duration, hook, script, shot_list, voiceover, visual_prompts, caption, youtube_description. Short videos should be 30-60 seconds and include exact shot timecodes. The long video should be '+longDuration+' and include a complete scene/timecode plan. Avoid fabricated facts and use placeholders where necessary.';
-  let r=await gemini(prompt); if(!r.ok)r=await openai(prompt);
+  let r=await aiText(prompt);
   if(!r.ok)throw Error(r.error||'AI generation failed');
   try{const clean=r.text.replace(/^\`\`\`json\s*/,'').replace(/\s*\`\`\`$/,'');return JSON.parse(clean)}catch(e){throw Error('AI returned an invalid automation pack.')}
 }
@@ -194,7 +287,7 @@ async function runDailyAutomation(mode='shorts'){
 http.createServer(async (req,res)=>{
   const url=new URL(req.url,'http://localhost');
   if(req.method==='GET'&&url.pathname==='/api/company/structure')return json(res,200,companyStructure);
-  if(req.method==='GET'&&url.pathname==='/health')return json(res,200,{ok:true,service:'DIMRI Social Studio',aiConfigured:Boolean(process.env.GEMINI_API_KEY||process.env.OPENAI_API_KEY),providers:{gemini:Boolean(process.env.GEMINI_API_KEY),openai:Boolean(process.env.OPENAI_API_KEY)},integrations:{youtube:Boolean(process.env.YOUTUBE_CLIENT_ID&&process.env.YOUTUBE_CLIENT_SECRET&&process.env.YOUTUBE_REFRESH_TOKEN),instagram:Boolean(process.env.INSTAGRAM_ACCESS_TOKEN&&process.env.INSTAGRAM_USER_ID),video:configuredVideoEngines().length>0,videoEngines:configuredVideoEngines()}});
+  if(req.method==='GET'&&url.pathname==='/health')return json(res,200,{ok:true,service:'DIMRI Social Studio',aiConfigured:Boolean(geminiKeys().length||process.env.GOOGLE_CLOUD_PROJECT||process.env.OPENAI_API_KEY),providers:{gemini:Boolean(geminiKeys().length),vertexGemini:Boolean(process.env.GOOGLE_CLOUD_PROJECT),openai:Boolean(process.env.OPENAI_API_KEY)},integrations:{youtube:Boolean(process.env.YOUTUBE_CLIENT_ID&&process.env.YOUTUBE_CLIENT_SECRET&&process.env.YOUTUBE_REFRESH_TOKEN),instagram:Boolean(process.env.INSTAGRAM_ACCESS_TOKEN&&process.env.INSTAGRAM_USER_ID),video:configuredVideoEngines().length>0,videoEngines:configuredVideoEngines()}});
   
   if(req.method==='GET'&&url.pathname==='/auth/youtube'){if(!process.env.YOUTUBE_CLIENT_ID)return html(res,503,'<p>YOUTUBE_CLIENT_ID is not configured in Render.</p>');const redirect=publicBaseUrl(req)+'/auth/youtube/callback';const q=new URLSearchParams({client_id:process.env.YOUTUBE_CLIENT_ID,redirect_uri:redirect,response_type:'code',access_type:'offline',prompt:'consent',scope:'https://www.googleapis.com/auth/youtube.upload'});res.writeHead(302,{Location:'https://accounts.google.com/o/oauth2/v2/auth?'+q.toString()});return res.end()}
   if(req.method==='GET'&&url.pathname==='/auth/youtube/callback'){try{const code=url.searchParams.get('code');if(!code)return html(res,400,'<p>Missing OAuth code.</p>');const redirect=publicBaseUrl(req)+'/auth/youtube/callback';const r=await fetch('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({code,client_id:process.env.YOUTUBE_CLIENT_ID,client_secret:process.env.YOUTUBE_CLIENT_SECRET,redirect_uri:redirect,grant_type:'authorization_code'})});const d=await r.json();if(!r.ok)return html(res,502,'<p>OAuth exchange failed.</p><pre>'+JSON.stringify(d,null,2)+'</pre>');return html(res,200,'<p>Google OAuth completed.</p><p><b>Refresh token:</b></p><textarea style="width:100%;min-height:100px;background:#111925;color:#fff">'+String(d.refresh_token||'')+'</textarea><p>Save this value in Render as <b>YOUTUBE_REFRESH_TOKEN</b>. Do not publish it or commit it to GitHub.</p>')}catch(e){return html(res,500,'<p>'+String(e.message||e)+'</p>')}}
@@ -212,8 +305,8 @@ http.createServer(async (req,res)=>{
       try{
         const i=JSON.parse(raw||'{}'),prompt=String(i.prompt||'').trim();
         if(!prompt)return json(res,400,{error:'Image prompt is required.'});
-        if(!process.env.GEMINI_API_KEY)return json(res,503,{error:'Scene image generation requires GEMINI_API_KEY in Render. Add it under Environment; never paste it into chat.'});
-        const model=process.env.GEMINI_IMAGE_MODEL||'gemini-2.5-flash-image';
+        if(!geminiKeys().length&&!process.env.GOOGLE_CLOUD_PROJECT&&!process.env.OPENAI_API_KEY)return json(res,503,{error:'Scene image generation has no configured provider. Add Gemini/Vertex/OpenAI credentials in Render; never paste keys into chat.'});
+        const model=process.env.GEMINI_IMAGE_MODEL||'gemini-3.1-flash-image';
         const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent?key='+encodeURIComponent(process.env.GEMINI_API_KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:'Generate one high-quality image for this scene. '+prompt}]}],generationConfig:{responseModalities:['TEXT','IMAGE']}})});
         const d=await r.json();
         if(!r.ok)return json(res,r.status,{error:safeMessage(d,'Image provider request failed.')});
@@ -230,8 +323,8 @@ http.createServer(async (req,res)=>{
         if(!topic)return json(res,400,{error:'Enter a topic first.'});
         if(topic.length>1000)return json(res,400,{error:'Keep topic under 1,000 characters.'});
         const prompt=mode==='series'?'Create a complete serialized story bible and episode plan for topic: '+topic+'. Create exactly '+episodeCount+' episodes, each '+duration+' long, in visual style '+style+'. Return ONLY valid JSON object with keys title, logline, characters (array of objects with name, visual_dna), series_arc, continuity_rules (array), episodes (array with exactly '+episodeCount+' objects; each object has episode_number, title, synopsis, story, cliffhanger, scenes (array of 4-8 objects, each with scene_number, duration_seconds, narration, image_prompt, video_prompt, sound_design)). Episodes must form a coherent progressive story, with consistent character identities, locations, costume and art style. Episode 1 establishes the world; later episodes advance the plot; each episode has a satisfying mini-arc and an ending hook. Every image_prompt repeats relevant character visual DNA and specifies composition, lighting, camera and aspect ratio 9:16. Every video_prompt describes motion, action, camera movement and continuity, suitable for image-to-video. No markdown fences.':'Create a production-ready story plan for topic: '+topic+'. Target duration: '+duration+'. Visual style: '+style+'. Return ONLY valid JSON object with keys title, logline, characters (array of objects with name, visual_dna), story (full narration/story), scenes (array of 4-12 objects, each with scene_number, duration_seconds, narration, image_prompt, video_prompt, sound_design). Image prompts must maintain character visual consistency by repeating visual DNA, specify composition, lighting, camera, aspect ratio 9:16. Video prompts must describe motion, camera movement, action, and continuity, suitable for image-to-video animation. Ensure scene durations sum approximately to requested duration. No markdown fences.';
-        let r=await gemini(prompt);if(!r.ok)r=await openai(prompt);
-        if(!r.ok)return json(res,r.status===429?429:502,{error:'Story planning failed. '+r.error+' Configure a valid GEMINI_API_KEY or OPENAI_API_KEY in Render.'});
+        let r=await aiText(prompt);
+        if(!r.ok)return json(res,r.status===429?429:502,{error:'Story planning failed. '+r.error});
         const clean=r.text.replace(/^\`\`\`json\s*/,'').replace(/\s*\`\`\`$/,'');
         let plan;try{plan=JSON.parse(clean)}catch{return json(res,502,{error:'AI returned invalid story JSON. Please retry.'})}
         return json(res,200,{...plan,mode,provider:r.provider,model:r.model});
@@ -253,7 +346,7 @@ if(req.method==='POST'&&url.pathname==='/api/generate'){
         const prompt='You are a creative social media writing assistant. Produce only the requested draft. Do not invent facts, statistics, testimonials, or results; use placeholders when details are missing.\nPlatform: '+String(i.platform||'Instagram')+'\nOutput: '+type+'\nVideo duration: '+duration+'\nVideo format: '+videoFormat+'\nTone: '+String(i.tone||'Friendly')+'\nLanguage: '+String(i.language||'English')+'\nAudience: '+String(i.audience||'Not specified')+'\nBrief: '+brief+'\n\n'+specs[type];
         let result=await gemini(prompt);
         if(!result.ok)result=await openai(prompt);
-        if(!result.ok)return json(res,result.status===429?429:502,{error:'AI generation failed. '+result.error+' If Gemini is rate-limited, the app will use the OpenAI fallback when OPENAI_API_KEY is configured.'});
+        if(!result.ok)return json(res,result.status===429?429:502,{error:'AI generation failed. '+result.error+'. Configure another provider in Render if the current provider quota is exhausted.'});
         return json(res,200,{text:result.text,provider:result.provider,model:result.model});
       }catch(e){return json(res,400,{error:'Invalid request or generation error. Please try again.'})}
     });return;
