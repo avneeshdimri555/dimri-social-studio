@@ -305,14 +305,32 @@ http.createServer(async (req,res)=>{
       try{
         const i=JSON.parse(raw||'{}'),prompt=String(i.prompt||'').trim();
         if(!prompt)return json(res,400,{error:'Image prompt is required.'});
-        if(!geminiKeys().length&&!process.env.GOOGLE_CLOUD_PROJECT&&!process.env.OPENAI_API_KEY)return json(res,503,{error:'Scene image generation has no configured provider. Add Gemini/Vertex/OpenAI credentials in Render; never paste keys into chat.'});
-        const model=process.env.GEMINI_IMAGE_MODEL||'gemini-3.1-flash-image';
-        const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent?key='+encodeURIComponent(process.env.GEMINI_API_KEY),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:'Generate one high-quality image for this scene. '+prompt}]}],generationConfig:{responseModalities:['TEXT','IMAGE']}})});
-        const d=await r.json();
-        if(!r.ok)return json(res,r.status,{error:safeMessage(d,'Image provider request failed.')});
-        const parts=d?.candidates?.[0]?.content?.parts||[],imagePart=parts.find(p=>p.inlineData?.data||p.inline_data?.data),data=imagePart?.inlineData?.data||imagePart?.inline_data?.data,mimeType=imagePart?.inlineData?.mimeType||imagePart?.inline_data?.mime_type||'image/png';
-        if(!data)return json(res,502,{error:'Image model returned no image. Check model access/quota or try another prompt.'});
-        return json(res,200,{data,mimeType,model,provider:'gemini'});
+        const keys=geminiKeys();
+        if(!keys.length)return json(res,503,{error:'Scene image generation needs a Gemini image provider. Add GEMINI_API_KEY or GEMINI_API_KEYS in Render.'});
+        const models=(process.env.GEMINI_IMAGE_MODELS||process.env.GEMINI_IMAGE_MODEL||'gemini-3.1-flash-image,gemini-3.1-flash-lite-image,gemini-2.5-flash-image').split(',').map(x=>x.trim()).filter(Boolean);
+        let last={status:502,error:'Image generation failed.'};
+        for(const key of keys){
+          for(const model of models){
+            for(let attempt=0;attempt<=2;attempt++){
+              try{
+                const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent?key='+encodeURIComponent(key),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:'Generate one high-quality production image for this scene. '+prompt}]}],generationConfig:{responseModalities:['TEXT','IMAGE']}})});
+                const d=await r.json().catch(()=>({}));
+                if(r.ok){
+                  const parts=d?.candidates?.[0]?.content?.parts||[],imagePart=parts.find(p=>p.inlineData?.data||p.inline_data?.data),data=imagePart?.inlineData?.data||imagePart?.inline_data?.data,mimeType=imagePart?.inlineData?.mimeType||imagePart?.inline_data?.mime_type||'image/png';
+                  if(data)return json(res,200,{data,mimeType,model,provider:'gemini'});
+                  last={status:502,error:'Image model returned no image.'};break;
+                }
+                last={status:r.status,error:safeMessage(d,r.status===429?'Gemini image rate/quota limit reached.':'Gemini image request failed.')};
+                if(![408,429,500,502,503,504].includes(r.status)||attempt>=2)break;
+                await sleep(retryDelayMs(r,attempt));
+              }catch(e){
+                last={status:502,error:'Gemini image connection failed.'};
+                if(attempt<2)await sleep(Math.min(8000,1000*Math.pow(2,attempt)));
+              }
+            }
+          }
+        }
+        return json(res,last.status===429?429:502,{error:last.error+' Add another Gemini project/key or enable Vertex AI/OpenAI as a fallback provider in Render.'});
       }catch(e){return json(res,502,{error:e.message||'Image generation failed.'})}
     });return;
   }
@@ -336,7 +354,7 @@ http.createServer(async (req,res)=>{
   }
 
 if(req.method==='POST'&&url.pathname==='/api/generate'){
-    if(!process.env.GEMINI_API_KEY&&!process.env.OPENAI_API_KEY)return json(res,503,{error:'AI is not configured. Add GEMINI_API_KEY or OPENAI_API_KEY to Render environment settings.'});
+    if(!geminiKeys().length&&!process.env.GOOGLE_CLOUD_PROJECT&&!process.env.OPENAI_API_KEY)return json(res,503,{error:'AI is not configured. Add Gemini, Vertex AI, or OpenAI credentials to Render environment settings.'});
     let raw='';req.on('data',c=>{raw+=c;if(raw.length>50000)req.destroy()});req.on('end',async()=>{
       try{
         const i=JSON.parse(raw||'{}'),brief=String(i.brief||'').trim(),type=['caption','idea','script','storyboard','production','hashtags'].includes(i.type)?i.type:'caption',duration=String(i.duration||'30 seconds'),videoFormat=String(i.videoFormat||'Short-form vertical (9:16)');
