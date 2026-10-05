@@ -177,6 +177,7 @@ function integrationsStatus(){
   };
 }
 const VIDEO_ENGINE_SPECS={
+  "fal-seedance-i2v":{provider:"fal",model:"bytedance/seedance-2.5/image-to-video",max:30,imageToVideo:true},
   "fal-flux3-draft":{provider:"fal",model:"blackforestlabs/flux-3/draft/text-to-video",max:15},
   "fal-h3max":{provider:"fal",model:"minimax/h3-max/text-to-video",max:15},
   "fal-wan3":{provider:"fal",model:"alibaba/wan-3.0/text-to-video",max:10},
@@ -187,28 +188,42 @@ const VIDEO_ENGINE_SPECS={
   "higgsfield":{provider:"higgsfield",model:process.env.HF_VIDEO_MODEL||"bytedance/seedance-2.5/text-to-video",max:30}
 };
 function configuredVideoEngines(){
-  const order=(process.env.VIDEO_PROVIDER_ORDER||"fal-flux3-draft,fal-h3max,fal-wan3,fal-grok,fal-pika,fal-kling,fal-hunyuan,higgsfield").split(",").map(x=>x.trim()).filter(Boolean);
+  const order=(process.env.VIDEO_PROVIDER_ORDER||"fal-seedance-i2v,fal-flux3-draft,fal-h3max,fal-wan3,fal-grok,fal-pika,fal-kling,fal-hunyuan,higgsfield").split(",").map(x=>x.trim()).filter(Boolean);
   return order.filter(id=>VIDEO_ENGINE_SPECS[id] && ((VIDEO_ENGINE_SPECS[id].provider==="fal"&&process.env.FAL_KEY)||(VIDEO_ENGINE_SPECS[id].provider==="higgsfield"&&(process.env.HF_CREDENTIALS||process.env.HF_API_KEY||process.env.HF_API_KEY_ID&&process.env.HF_API_KEY_SECRET))));
 }
-async function generateFalVideo(engineId,prompt,duration=5,aspectRatio="9:16"){
+async function generateFalVideo(engineId,prompt,duration=5,aspectRatio="9:16",imageData=null){
   if(!process.env.FAL_KEY)throw Error("FAL_KEY is not configured.");
   const spec=VIDEO_ENGINE_SPECS[engineId]; if(!spec||spec.provider!=="fal")throw Error("Unknown fal video engine.");
   const {fal}=await import("@fal-ai/client");
   fal.config({credentials:process.env.FAL_KEY});
   const d=Math.max(5,Math.min(spec.max,Number(duration)||5));
   const input={prompt:String(prompt),duration:d,aspect_ratio:aspectRatio};
-  if(engineId==="fal-wan3")Object.assign(input,{resolution:"720p",audio:true});
-  if(engineId==="fal-kling")Object.assign(input,{generate_audio:true});
-  if(engineId==="fal-flux3-draft")Object.assign(input,{resolution:"720p",generate_audio:true});
-  if(engineId==="fal-h3max")Object.assign(input,{resolution:"768P",prompt_expansion_mode:"disabled"});
+  if(spec.imageToVideo){
+    if(!imageData)throw Error("Image-to-video requires the generated scene image.");
+    input.image_url=String(imageData);
+    input.resolution="720p";
+    input.generate_audio=true;
+  }else{
+    if(engineId==="fal-wan3")Object.assign(input,{resolution:"720p",audio:true});
+    if(engineId==="fal-kling")Object.assign(input,{generate_audio:true});
+    if(engineId==="fal-flux3-draft")Object.assign(input,{resolution:"720p",generate_audio:true});
+    if(engineId==="fal-h3max")Object.assign(input,{resolution:"768P",prompt_expansion_mode:"disabled"});
+  }
   const result=await fal.subscribe(spec.model,{input,logs:false});
   const video=result?.data?.video||result?.data?.output?.video||result?.video||result?.output?.video;
   const url=typeof video==="string"?video:video?.url;
   if(!url)throw Error(engineId+" completed without a video URL.");
   return {request_id:result?.requestId||null,status:"completed",engine:engineId,video:{url},duration:d};
 }
-async function generateVideoWithFallback(prompt,duration=5,aspectRatio="9:16"){
+async function generateVideoWithFallback(prompt,duration=5,aspectRatio="9:16",imageData=null){
   const engines=configuredVideoEngines();
+  if(imageData){
+    const i2v=engines.filter(id=>VIDEO_ENGINE_SPECS[id]?.imageToVideo);
+    if(!i2v.length)throw Error("Image-to-video is not configured. Add FAL_KEY in Render to enable the image → video pipeline.");
+    const errors=[];
+    for(const id of i2v){try{return await generateFalVideo(id,prompt,duration,aspectRatio,imageData)}catch(e){errors.push(id+": "+String(e.message||e).slice(0,180));}}
+    throw Error("Image-to-video failed. "+errors.join(" | "));
+  }
   if(!engines.length)throw Error("No video provider is configured. Add FAL_KEY or Higgsfield credentials in Render.");
   const errors=[];
   for(const id of engines){
@@ -301,36 +316,52 @@ http.createServer(async (req,res)=>{
     return;
   }
   if(req.method==='POST'&&url.pathname==='/api/image/generate'){
-    let raw='';req.on('data',c=>{raw+=c;if(raw.length>12000)req.destroy()});req.on('end',async()=>{
+    let raw='';req.on('data',c=>{raw+=c;if(raw.length>12000000)req.destroy()});req.on('end',async()=>{
       try{
-        const i=JSON.parse(raw||'{}'),prompt=String(i.prompt||'').trim();
+        const i=JSON.parse(raw||'{}'),prompt=String(i.prompt||'').trim(),imageSize=String(i.imageSize||'1024x1536');
         if(!prompt)return json(res,400,{error:'Image prompt is required.'});
-        const keys=geminiKeys();
-        if(!keys.length)return json(res,503,{error:'Scene image generation needs a Gemini image provider. Add GEMINI_API_KEY or GEMINI_API_KEYS in Render.'});
-        const models=(process.env.GEMINI_IMAGE_MODELS||process.env.GEMINI_IMAGE_MODEL||'gemini-3.1-flash-image,gemini-3.1-flash-lite-image,gemini-2.5-flash-image').split(',').map(x=>x.trim()).filter(Boolean);
-        let last={status:502,error:'Image generation failed.'};
-        for(const key of keys){
-          for(const model of models){
-            for(let attempt=0;attempt<=2;attempt++){
-              try{
-                const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent?key='+encodeURIComponent(key),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:'Generate one high-quality production image for this scene. '+prompt}]}],generationConfig:{responseModalities:['TEXT','IMAGE']}})});
-                const d=await r.json().catch(()=>({}));
-                if(r.ok){
-                  const parts=d?.candidates?.[0]?.content?.parts||[],imagePart=parts.find(p=>p.inlineData?.data||p.inline_data?.data),data=imagePart?.inlineData?.data||imagePart?.inline_data?.data,mimeType=imagePart?.inlineData?.mimeType||imagePart?.inline_data?.mime_type||'image/png';
-                  if(data)return json(res,200,{data,mimeType,model,provider:'gemini'});
-                  last={status:502,error:'Image model returned no image.'};break;
-                }
-                last={status:r.status,error:safeMessage(d,r.status===429?'Gemini image rate/quota limit reached.':'Gemini image request failed.')};
-                if(![408,429,500,502,503,504].includes(r.status)||attempt>=2)break;
-                await sleep(retryDelayMs(r,attempt));
-              }catch(e){
-                last={status:502,error:'Gemini image connection failed.'};
-                if(attempt<2)await sleep(Math.min(8000,1000*Math.pow(2,attempt)));
+        const errors=[];
+        if(process.env.FAL_KEY){
+          try{
+            const {fal}=await import("@fal-ai/client");
+            fal.config({credentials:process.env.FAL_KEY});
+            const result=await fal.subscribe(process.env.SOCIAL_STUDIO_IMAGE_MODEL||"fal-ai/gpt-image-1.5",{
+              input:{prompt:"Create one production-ready social media image. "+prompt,image_size:imageSize,quality:"medium",num_images:1,output_format:"png",sync_mode:true},
+              logs:false
+            });
+            const img=result?.data?.images?.[0]||result?.images?.[0];
+            if(img?.url){
+              if(String(img.url).startsWith("data:")){
+                const m=String(img.url).match(/^data:([^;]+);base64,(.+)$/);
+                if(m)return json(res,200,{data:m[2],mimeType:m[1],model:process.env.SOCIAL_STUDIO_IMAGE_MODEL||"fal-ai/gpt-image-1.5",provider:"fal"});
               }
+              const rr=await fetch(img.url);if(!rr.ok)throw Error("Generated image could not be downloaded.");
+              const mime=img.content_type||rr.headers.get("content-type")||"image/png";
+              return json(res,200,{data:Buffer.from(await rr.arrayBuffer()).toString("base64"),mimeType:mime,model:process.env.SOCIAL_STUDIO_IMAGE_MODEL||"fal-ai/gpt-image-1.5",provider:"fal"});
             }
+            errors.push("FAL image provider returned no image.");
+          }catch(e){errors.push("FAL: "+String(e.message||e).slice(0,220));}
+        }
+        const keys=geminiKeys();
+        if(keys.length){
+          const models=(process.env.GEMINI_IMAGE_MODELS||process.env.GEMINI_IMAGE_MODEL||'gemini-3.1-flash-image,gemini-3.1-flash-lite-image,gemini-2.5-flash-image').split(',').map(x=>x.trim()).filter(Boolean);
+          for(const key of keys)for(const model of models)for(let attempt=0;attempt<=2;attempt++){
+            try{
+              const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(model)+':generateContent?key='+encodeURIComponent(key),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:'Generate one high-quality production image for this scene. '+prompt}]}],generationConfig:{responseModalities:['TEXT','IMAGE']}})});
+              const d=await r.json().catch(()=>({}));
+              if(r.ok){
+                const parts=d?.candidates?.[0]?.content?.parts||[],p=parts.find(x=>x.inlineData?.data||x.inline_data?.data),data=p?.inlineData?.data||p?.inline_data?.data,mimeType=p?.inlineData?.mimeType||p?.inline_data?.mime_type||'image/png';
+                if(data)return json(res,200,{data,mimeType,model,provider:'gemini'});
+                errors.push(model+": no image returned.");break;
+              }
+              const transient=[408,429,500,502,503,504].includes(r.status);
+              errors.push(model+": "+safeMessage(d,r.status===429?'rate/quota limit':'request failed'));
+              if(!transient||attempt>=2)break;
+              await sleep(retryDelayMs(r,attempt));
+            }catch(e){errors.push(model+": connection failed");if(attempt<2)await sleep(Math.min(8000,1000*Math.pow(2,attempt)));}
           }
         }
-        return json(res,last.status===429?429:502,{error:last.error+' Add another Gemini project/key or enable Vertex AI/OpenAI as a fallback provider in Render.'});
+        return json(res,503,{error:'No image was generated. '+errors.slice(-5).join(' | ')});
       }catch(e){return json(res,502,{error:e.message||'Image generation failed.'})}
     });return;
   }
@@ -350,7 +381,7 @@ http.createServer(async (req,res)=>{
     });return;
   }
   if(req.method==='POST'&&url.pathname==='/api/video/generate'){
-    let raw='';req.on('data',c=>{raw+=c;if(raw.length>20000)req.destroy()});req.on('end',async()=>{try{const i=JSON.parse(raw||'{}');if(!String(i.prompt||'').trim())return json(res,400,{error:'Video prompt is required.'});const d=await generateVideoWithFallback(String(i.prompt),Number(i.duration||5),String(i.aspectRatio||'9:16'));return json(res,202,d)}catch(e){return json(res,502,{error:e.message||'Video generation failed.'})}});return;
+    let raw='';req.on('data',c=>{raw+=c;if(raw.length>20000)req.destroy()});req.on('end',async()=>{try{const i=JSON.parse(raw||'{}');if(!String(i.prompt||'').trim())return json(res,400,{error:'Video prompt is required.'});const imageData=i.imageData?String(i.imageData):null;if(imageData&&imageData.length>12000000)return json(res,413,{error:'Generated image is too large.'});const d=await generateVideoWithFallback(String(i.prompt),Number(i.duration||5),String(i.aspectRatio||'9:16'),imageData);return json(res,202,d)}catch(e){return json(res,502,{error:e.message||'Video generation failed.'})}});return;
   }
 
 if(req.method==='POST'&&url.pathname==='/api/generate'){
