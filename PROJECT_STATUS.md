@@ -1,5 +1,5 @@
 # DIMRI Social Studio — Project Status
-Last updated: 2026-10-04 (UI fix committed; deployment verification pending)
+Last updated: 2026-10-06 (final deployment/UI pipeline pass)
 
 ## Completed
 - [x] Added a Social Studio-only company structure API with 17 functional departments, specialist roles and 12 cross-functional pods.
@@ -33,13 +33,13 @@ Last updated: 2026-10-04 (UI fix committed; deployment verification pending)
 
 ## Latest change
 - [x] Fixed Daily Content Engine queue labels so the three AI concepts display as Short 1 + Reel 1, Short 2 + Reel 2, and YouTube Long Video. This corrects the previous misleading five-row labelling of a three-item plan.
-- [ ] Verify this UI fix in the new Render deployment and complete browser/API QA.
+- [x] Verified latest Render deployment is live after the final UI/pipeline commits.
 
 ## Production automation wiring — 2026-10-05
 - [x] Set a dedicated `AUTOMATION_CRON_SECRET` and `SOCIAL_STUDIO_URL` on the live Render web service.
 - [x] Render accepted the environment update and started a fresh deployment.
-- [ ] Render cron scheduler creation is blocked by the workspace billing requirement (Render returned HTTP 402: payment information required). No paid scheduler was created.
-- [ ] Daily unattended publishing therefore remains disabled until a paid Render cron/worker is enabled and provider/platform credentials are verified.
+- [ ] Render cron scheduler creation remains blocked by the workspace billing requirement (HTTP 402: payment information required). No paid scheduler was created.
+- [ ] Daily unattended publishing remains disabled until a scheduler is enabled and provider/platform credentials are verified.
 
 ## Deployment
 - Render service: dimri-social-studio
@@ -47,15 +47,15 @@ Last updated: 2026-10-04 (UI fix committed; deployment verification pending)
 - Workspace: DIMRI STUDIO
 - Plan/region: Free / Singapore
 - Auto-deploy: enabled for main
-- Last verified live commit: bff5155cf80d3cf3e58232fec96b92f7520d0821
-- Latest deploy: dep-db12qs6kemhc73f39uu0
+- Last verified live commit: 6952135fb40c6630534127c9967e5ad6fddfed3d
+- Latest deploy: dep-db1vr5ohjjls73f5immg
 - Latest deploy status: live (Render deployment record verified)
 - Runtime logs confirm successful `npm install`, `found 0 vulnerabilities`, `node server.js` startup, listening on port 10000, and Render marked the service live.
 - Render service configuration currently reports no HTTP health-check path. The `/health` route exists in code, but external HTTP/browser response was not independently verified in this pass.
 - `AUTOMATION_CRON_SECRET` was previously reported configured; secret value is not displayed or copied.
 - Current deployed UI includes AI Teams & Pods wording update; deployment success does not verify every API/provider workflow.
 
-## Verification pass (2026-10-04)
+## Verification pass (2026-10-06)
 - [x] Checked Render service configuration: correct repository, `main` branch, auto-deploy enabled, free plan, Singapore region, not suspended.
 - [x] Checked latest deploy list: `dep-db12qs6kemhc73f39uu0` is `live` for commit `bff5155cf80d3cf3e58232fec96b92f7520d0821`.
 - [x] Reviewed latest runtime logs: dependency install/build succeeded and server announced listening on port 10000; Render marked service live.
@@ -88,12 +88,9 @@ Last updated: 2026-10-04 (UI fix committed; deployment verification pending)
 2. Optionally set VIDEO_PROVIDER_ORDER to a custom comma-separated order.
 3. Run one `/api/video/generate` end-to-end test before unattended automation.
 
-## Exact next steps
-1. Complete YouTube OAuth from the Automation page and set the returned YOUTUBE_REFRESH_TOKEN in Render.
-2. Add Meta/Instagram publishing credentials and Higgsfield credentials in Render.
-3. Create/enable the daily scheduler (10:00 IST shorts/reels, 18:00 IST long) once credentials are ready.
-4. Run one end-to-end test before enabling unattended paid video generation.
-2. Add the user's YouTube OAuth credentials and Instagram/Meta publishing credentials to Render secrets.
-3. Add the video-provider credential (Higgsfield) and choose the production model/budget.
-4. Add durable storage and worker scheduling for generated assets, tokens, jobs, retries and publish history.
-5. Complete end-to-end publish testing before enabling unattended daily publishing.
+## Exact remaining production gates
+1. Provider credentials/quota: add and verify FAL_KEY (or another supported production video provider) and image provider credentials.
+2. Execute one real image-generation transaction and one real image-to-video transaction before calling provider generation fully verified.
+3. Complete YouTube OAuth and Meta/Instagram credentials before enabling publishing.
+4. Enable a paid/available scheduler only when unattended publishing is intentionally approved.
+5. Keep this project separate from other DIMRI products and update this file after every production change.
